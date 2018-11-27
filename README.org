@@ -1,0 +1,53 @@
+#+TITLE: FiniteDifferencesQuasi.jl
+#+AUTHOR: Stefanos Carlström
+#+EMAIL: stefanos.carlstrom@gmail.com
+
+#+PROPERTY: header-args:julia :session *julia-README*
+
+Implementation of finite differences in the framework of
+[[https://github.com/JuliaApproximation/ContinuumArrays.jl][ContinuumArrays.jl]].
+
+#+BEGIN_SRC julia :exports none
+  using Pkg
+  Pkg.activate(".")
+#+END_SRC
+
+#+BEGIN_SRC julia :exports both :results verbatim
+  using FiniteDifferencesQuasi
+
+  B = FiniteDifferences(5,1.0)
+#+END_SRC
+
+#+RESULTS:
+: Finite differences basis {Float64} on 1.0..5.0 with 5 points spaced by Δx = 1.0
+
+#+BEGIN_SRC julia :exports both :results verbatim
+  D = Derivative(axes(B,1))
+#+END_SRC
+
+#+RESULTS:
+: Derivative{Float64,IntervalSets.Interval{:closed,:closed,Float64}}(1.0..5.0)
+
+#+BEGIN_SRC julia :exports both :results verbatim
+  ∇ = B'*D*B
+#+END_SRC
+
+#+RESULTS:
+: 5×5 LinearAlgebra.Tridiagonal{Float64,Array{Float64,1}}:
+:   0.0   0.5    ⋅     ⋅    ⋅ 
+:  -0.5   0.0   0.5    ⋅    ⋅ 
+:    ⋅   -0.5   0.0   0.5   ⋅ 
+:    ⋅     ⋅   -0.5   0.0  0.5
+:    ⋅     ⋅     ⋅   -0.5  0.0
+
+#+BEGIN_SRC julia :exports both :results verbatim
+  ∇² = B'D'D*B
+#+END_SRC
+
+#+RESULTS:
+: 5×5 LinearAlgebra.SymTridiagonal{Float64,Array{Float64,1}}:
+:  -2.0   1.0    ⋅     ⋅     ⋅ 
+:   1.0  -2.0   1.0    ⋅     ⋅ 
+:    ⋅    1.0  -2.0   1.0    ⋅ 
+:    ⋅     ⋅    1.0  -2.0   1.0
+:    ⋅     ⋅     ⋅    1.0  -2.0

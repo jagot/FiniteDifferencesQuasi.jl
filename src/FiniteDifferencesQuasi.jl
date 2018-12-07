@@ -5,7 +5,7 @@ import Base.Broadcast: materialize
 
 using ContinuumArrays
 import ContinuumArrays: ℵ₁, Derivative
-import ContinuumArrays.QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint
+import ContinuumArrays.QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray
 
 using IntervalSets
 
@@ -131,6 +131,17 @@ materialize(M::FirstOrSecondDerivative) = copyto!(similar(M, eltype(M)), M)
 # * Projections
 
 dot(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = f.(locs(B))
+
+# * Densities
+
+function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,M<:MulQuasiArray{T,N,<:Mul{<:Tuple,<:Tuple{<:AbstractFiniteDifferences,<:AbstractArray{T,N}}}}}
+    axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
+    A,ca = a.mul.factors
+    B,cb = b.mul.factors
+    A == B || throw(DimensionMismatch("Incompatible bases"))
+    c = ca .* cb
+    A*c
+end
 
 # * Exports
 

@@ -13,7 +13,7 @@ using LazyArrays
 import LazyArrays: Mul2
 
 using LinearAlgebra
-import LinearAlgebra: Matrix
+import LinearAlgebra: Matrix, dot
 
 using Printf
 
@@ -128,6 +128,12 @@ end
 
 materialize(M::FirstOrSecondDerivative) = copyto!(similar(M, eltype(M)), M)
 
-export FiniteDifferences, RadialDifferences, Derivative
+# * Projections
+
+dot(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = f.(locs(B))
+
+# * Exports
+
+export AbstractFiniteDifferences, FiniteDifferences, RadialDifferences, Derivative, dot
 
 end # module

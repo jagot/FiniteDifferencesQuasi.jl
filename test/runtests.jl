@@ -8,6 +8,15 @@ using LazyArrays
 import LazyArrays: ⋆
 using Test
 
+@testset "Scalar operators" begin
+    B = FiniteDifferences(5,1.0)
+    x² = Matrix(x -> x^2, B)
+    @test x² isa Diagonal
+
+    v = ones(5)
+    @test x²*v == locs(B).^2
+end
+
 @testset "Derivatives" begin
     B = FiniteDifferences(5,1.0)
     D = Derivative(axes(B,1))

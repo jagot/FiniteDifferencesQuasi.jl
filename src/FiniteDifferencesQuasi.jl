@@ -74,6 +74,11 @@ step(B::RadialDifferences{T}) where {T} = B.ρ
 show(io::IO, B::RadialDifferences{T}) where T =
     write(io, "Radial finite differences basis {$T} on $(axes(B,1)) (formally 0..$(rightendpoint(axes(B,1)))) with $(size(B,2)) points spaced by ρ = $(B.ρ)")
 
+# * Scalar operators
+
+Matrix(f::Function, B::AbstractFiniteDifferences{T}) where T = Diagonal(f.(locs(B)))
+Matrix(::UniformScaling, B::AbstractFiniteDifferences{T}) where T = Diagonal(ones(T, size(B,2)))
+
 # * Derivatives
 
 α(::FiniteDifferences{T}) where T = one(T)

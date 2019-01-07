@@ -89,7 +89,7 @@ Matrix(::UniformScaling, B::AbstractFiniteDifferences{T}) where T = Diagonal(one
 β(B::RadialDifferences{T}, j::Integer) where T = (j^2 - j + 1/2)/(j^2 - j + 1/4) + (j == 1 ? B.δβ₁ : zero(T))
 
 α(B::RadialDifferences) = α.(Ref(B), B.j[1:end-1])
-β(B::RadialDifferences) = α.(Ref(B), B.j)
+β(B::RadialDifferences) = β.(Ref(B), B.j)
 
 const FirstDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Tuple,<:Tuple{<:QuasiAdjoint{<:Any,<:Basis},<:Derivative,<:Basis}}
 const SecondDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Tuple,<:Tuple{<:QuasiAdjoint{<:Any,<:Basis},<:QuasiAdjoint{<:Any,<:Derivative},<:Derivative,<:Basis}}
@@ -97,14 +97,14 @@ const FirstOrSecondDerivative = Union{FirstDerivative,SecondDerivative}
 
 function copyto!(dest::Tridiagonal{T}, M::FirstDerivative) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
-    
+
     B = last(M.factors)
     a = α(B)/2step(B)
-    
+
     dest.dl .= -a
     dest.d .= zero(T)
     dest.du .= a
-    
+
     dest
 end
 
@@ -116,12 +116,13 @@ end
 
 function copyto!(dest::SymTridiagonal{T}, M::SecondDerivative) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
-    
+
     B = last(M.factors)
-    
-    dest.dv .= -2β(B)/step(B)^2
-    dest.ev .= α(B)/step(B)^2
-    
+    δ² = step(B)^2
+
+    dest.dv .= -2β(B)/δ²
+    dest.ev .= α(B)/δ²
+
     dest
 end
 

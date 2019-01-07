@@ -71,3 +71,49 @@ end
 
     @test norm(χ'w - fw.(r)) == 0
 end
+
+# This tests that the discretization of the Laplacian, especially near
+# the origin where the potential term is singular.
+@testset "Hydrogen bound states" begin
+    rₘₐₓ = 300
+    ρ = 0.25
+    N = ceil(Int, rₘₐₓ/ρ + 1/2)
+
+    R = RadialDifferences(N, ρ)
+
+    D = Derivative(Base.axes(R,1))
+    ∇² = R'⋆D'⋆D⋆R
+    Tm = materialize(∇²)
+    Tm /= -2
+
+    V = Matrix(r -> -1/r, R)
+
+    H = Tm + V
+
+    ee = eigen(H)
+
+    n = 1:10
+    λₐ = -inv.(2n.^2)
+
+    abs_error = ee.values[n] - λₐ
+    rel_error = abs_error ./ abs.(1e-10 .+ abs.(λₐ))
+
+    @test abs_error[1] < 3e-5
+    @test all(rel_error .< 1e-3)
+
+    r = locs(R)
+    # Table 2.2 Foot (2005)
+    Rₐ₀ = [2exp.(-r),
+           -(1/2)^1.5 * 2 * (1 .- r/2).*exp.(-r/2), # Why the minus?
+           (1/3)^1.5 * 2 * (1 .- 2r/3 .+ 2/3*(r/3).^2).*exp.(-r/3)]
+    expected_errors = [1e-3,1e-3,2e-3]
+
+    for i = 1:3
+        v = ee.vectors[:,i]
+        N = norm(v)*√ρ
+        # The sign from the diagonalization is arbitrary; make max lobe positive
+        N *= sign(v[argmax(abs.(v))])
+        abs_error = v/N .- r.*Rₐ₀[i]
+        @test norm(abs_error)/abs(1e-10+norm(r.*Rₐ₀[i])) < expected_errors[i]
+    end
+end

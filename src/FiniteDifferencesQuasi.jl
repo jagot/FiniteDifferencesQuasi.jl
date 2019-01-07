@@ -17,7 +17,7 @@ import LinearAlgebra: Matrix, dot
 
 using Printf
 
-abstract type AbstractFiniteDifferences{T} <: AbstractQuasiMatrix{T} end
+abstract type AbstractFiniteDifferences{T,I<:Integer} <: AbstractQuasiMatrix{T} end
 
 eltype(::AbstractFiniteDifferences{T}) where T = T
 
@@ -39,12 +39,12 @@ function materialize(M::Mul2{<:Any,<:Any,<:QuasiAdjoint{<:Any,<:FD},<:FD}) where
 end
 
 # * Cartesian finite differences
-struct FiniteDifferences{T} <: AbstractFiniteDifferences{T}
-    j::UnitRange{Integer}
+struct FiniteDifferences{T,I} <: AbstractFiniteDifferences{T,I}
+    j::UnitRange{I}
     Δx::T
 end
-FiniteDifferences(n::Integer, Δx::T) where {T<:Real} =
-    FiniteDifferences{T}(1:n, Δx)
+FiniteDifferences(n::I, Δx::T) where {T<:Real,I<:Integer} =
+    FiniteDifferences{T,I}(1:n, Δx)
 
 locs(B::FiniteDifferences) = B.j*B.Δx
 step(B::FiniteDifferences{T}) where {T} = B.Δx
@@ -52,19 +52,19 @@ step(B::FiniteDifferences{T}) where {T} = B.Δx
 show(io::IO, B::FiniteDifferences{T}) where {T} =
     write(io, "Finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
 
-
 # * Radial finite differences
 # Specialized finite differences for the case where there is
 # Dirichlet0 boundary condition at r = 0.
-struct RadialDifferences{T} <: AbstractFiniteDifferences{T}
-    j::Base.OneTo{Integer}
+struct RadialDifferences{T,I} <: AbstractFiniteDifferences{T,I}
+    j::Base.OneTo{I}
     ρ::T
     Z::T
     δβ₁::T # Correction used for bare Coulomb potentials, Eq. (22) Schafer2009
-end
 
-RadialDifferences(n::I, ρ::T, Z::T=one(T)) where {I<:Integer, T} =
-    RadialDifferences{T}(Base.OneTo(n), ρ, Z, Z*ρ/8 * (one(T) + Z*ρ))
+    RadialDifferences(n::I, ρ::T, Z::T=one(T),
+                      δβ₁::T=Z*ρ/8 * (one(T) + Z*ρ)) where {I<:Integer, T} =
+        new{T,I}(Base.OneTo(n), ρ, Z, δβ₁)
+end
 
 locs(B::RadialDifferences{T}) where T = (B.j .- one(T)/2)*B.ρ
 step(B::RadialDifferences{T}) where {T} = B.ρ

@@ -29,6 +29,20 @@ size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
 getindex(B::AbstractFiniteDifferences{T}, x::Real, i::Integer) where T =
     x == locs(B)[i] ? one(T) : zero(T)
 
+const FDVector{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractVector}}}
+const FDMatrix{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractMatrix}}}
+const FDVecOrMat{T,B} = Union{FDVector{T,B},FDMatrix{T,B}}
+
+function LinearAlgebra.norm(v::FDVecOrMat, p::Real=2)
+    B,c = v.mul.factors
+    norm(c, p)*(step(B)^(inv(p)))
+end
+
+function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
+    v.mul.factors[2][:] /= norm(v,p)
+    v
+end
+
 # * Mass matrix
 function materialize(M::Mul2{<:Any,<:Any,<:QuasiAdjoint{<:Any,<:FD},<:FD}) where {T,FD<:AbstractFiniteDifferences{T}}
     Ac, B = M.factors

@@ -61,9 +61,9 @@ struct RadialDifferences{T,I} <: AbstractFiniteDifferences{T,I}
     Z::T
     δβ₁::T # Correction used for bare Coulomb potentials, Eq. (22) Schafer2009
 
-    RadialDifferences(n::I, ρ::T, Z::T=one(T),
-                      δβ₁::T=Z*ρ/8 * (one(T) + Z*ρ)) where {I<:Integer, T} =
-        new{T,I}(Base.OneTo(n), ρ, Z, δβ₁)
+    RadialDifferences(n::I, ρ::T, Z=one(T),
+                      δβ₁=Z*ρ/8 * (one(T) + Z*ρ)) where {I<:Integer, T} =
+        new{T,I}(Base.OneTo(n), ρ, convert(T,Z), convert(T,δβ₁))
 end
 
 locs(B::RadialDifferences{T}) where T = (B.j .- one(T)/2)*B.ρ

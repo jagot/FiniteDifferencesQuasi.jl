@@ -17,6 +17,30 @@ using Test
     @test x²*v == locs(B).^2
 end
 
+@testset "Inner products" begin
+    rₘₐₓ = 300
+    ρ = rand()
+    N = ceil(Int, rₘₐₓ/ρ + 1/2)
+    R = RadialDifferences(N, ρ)
+    B = FiniteDifferences(N, 1.0)
+
+    for T in [Float64,ComplexF64]
+        v = R*rand(T, size(R,2))
+        normalize!(v)
+
+        @test norm(v) ≈ 1.0
+        @test v'⋆v isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,RadialDifferences{Float64,Int}}
+        @test v'v ≈ 1.0
+
+        w = B*rand(T, size(B,2))
+        normalize!(w)
+
+        @test norm(w) ≈ 1.0
+        @test w'⋆w isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,FiniteDifferences{Float64,Int}}
+        @test w'w ≈ 1.0
+    end
+end
+
 @testset "Derivatives" begin
     B = FiniteDifferences(5,1.0)
     D = Derivative(axes(B,1))

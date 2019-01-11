@@ -29,9 +29,33 @@ size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
 getindex(B::AbstractFiniteDifferences{T}, x::Real, i::Integer) where T =
     x == locs(B)[i] ? one(T) : zero(T)
 
+# * Types
+
 const FDVector{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,1,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractVector}}}
 const FDMatrix{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractMatrix}}}
 const FDVecOrMat{T,B} = Union{FDVector{T,B},FDMatrix{T,B}}
+
+const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:M,<:QuasiAdjoint{<:Any,<:B}}}}
+
+const FDMatrixElement{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix,V<:AbstractVector} =
+    MulQuasiArray{T,0,<:Mul{<:Tuple,
+                            <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},
+                                    <:B,<:M,<:QuasiAdjoint{<:Any,<:B},
+                                    <:B,<:V}}}
+
+const FDInnerProduct{T,U,B<:AbstractFiniteDifferences{U},V<:AbstractVector{T}} =
+    Mul{<:Tuple, <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},<:B,<:V}}
+
+# * Mass matrix
+function materialize(M::Mul2{<:Any,<:Any,<:QuasiAdjoint{<:Any,<:FD},<:FD}) where {T,FD<:AbstractFiniteDifferences{T}}
+    Ac, B = M.factors
+    axes(Ac,2) == axes(B,1) || throw(DimensionMismatch("axes must be same"))
+    A = parent(Ac)
+    A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
+    Diagonal(ones(T, size(A,2)))
+end
+
+# * Inner products
 
 function LinearAlgebra.norm(v::FDVecOrMat, p::Real=2)
     B,c = v.mul.factors
@@ -43,13 +67,11 @@ function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
     v
 end
 
-# * Mass matrix
-function materialize(M::Mul2{<:Any,<:Any,<:QuasiAdjoint{<:Any,<:FD},<:FD}) where {T,FD<:AbstractFiniteDifferences{T}}
-    Ac, B = M.factors
-    axes(Ac,2) == axes(B,1) || throw(DimensionMismatch("axes must be same"))
-    A = parent(Ac)
-    A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
-    Diagonal(ones(T, size(A,2)))
+function LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD,V}) where {T,U,FD<:AbstractFiniteDifferences{T},V}
+    a,B′,B,b = inner_product.factors
+    axes(B′.parent) == axes(B) ||
+        throw(ArgumentError("Incompatible axes"))
+    a*b*step(B)
 end
 
 # * Cartesian finite differences

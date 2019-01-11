@@ -29,7 +29,7 @@ size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
 getindex(B::AbstractFiniteDifferences{T}, x::Real, i::Integer) where T =
     x == locs(B)[i] ? one(T) : zero(T)
 
-const FDVector{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractVector}}}
+const FDVector{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,1,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractVector}}}
 const FDMatrix{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractMatrix}}}
 const FDVecOrMat{T,B} = Union{FDVector{T,B},FDMatrix{T,B}}
 

@@ -1,5 +1,5 @@
 using FiniteDifferencesQuasi
-import FiniteDifferencesQuasi: FirstDerivative, SecondDerivative, locs
+import FiniteDifferencesQuasi: FirstDerivative, SecondDerivative, locs, FDDensity
 using IntervalSets
 using ContinuumArrays
 import ContinuumArrays: ℵ₁, materialize
@@ -94,6 +94,23 @@ end
     fw = r -> fu(r)*fv(r)
 
     @test norm(χ'w - fw.(r)) == 0
+
+    @testset "Lazy densities" begin
+        uv = u .⋆ v
+        @test uv isa FDDensity
+
+        w′ = similar(u)
+        copyto!(w′, uv)
+        @test norm(χ'w′ - fw.(r)) == 0
+
+        uu = R*repeat(u.mul.factors[2],1,2)
+        vv = R*repeat(v.mul.factors[2],1,2)
+        uuvv = uu .⋆ vv
+        ww′ = similar(uu)
+        copyto!(ww′, uuvv)
+
+        @test norm(χ'ww′ .- fw.(r)) == 0
+    end
 end
 
 # This tests that the discretization of the Laplacian, especially near

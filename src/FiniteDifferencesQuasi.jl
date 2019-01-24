@@ -10,7 +10,7 @@ import ContinuumArrays.QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiA
 using IntervalSets
 
 using LazyArrays
-import LazyArrays: Mul2
+import LazyArrays: ⋆, Mul2
 
 using LinearAlgebra
 import LinearAlgebra: Matrix, dot
@@ -183,6 +183,28 @@ function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,M<:MulQu
     A == B || throw(DimensionMismatch("Incompatible bases"))
     c = ca .* cb
     A*c
+end
+
+struct FDDensity{T,B<:AbstractFiniteDifferences,V<:AbstractVecOrMat{T}}
+    R::B
+    u::V
+    v::V
+end
+
+function Base.Broadcast.broadcasted(::typeof(⋆), a::V, b::V) where {T,B<:AbstractFiniteDifferences,V<:FDVecOrMat{T,B}}
+    axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
+    Ra,ca = a.mul.factors
+    Rb,cb = b.mul.factors
+    Ra == Rb || throw(DimensionMismatch("Incompatible bases"))
+    FDDensity(Ra, ca, cb)
+end
+
+function Base.copyto!(ρ::FDVecOrMat{T,R}, ld::FDDensity{T,R}) where {T,R}
+    Rρ,cρ = ρ.mul.factors
+    Rρ == ld.R || throw(DimensionMismatch("Incompatible bases"))
+    size(cρ) == size(ld.u) || throw(DimensionMismatch("Incompatible sizes"))
+    cρ .= ld.u .* ld.v
+    ρ
 end
 
 # * Exports

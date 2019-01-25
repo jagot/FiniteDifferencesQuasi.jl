@@ -95,6 +95,11 @@ end
 
     @test norm(χ'w - fw.(r)) == 0
 
+    y = R*rand(ComplexF64, size(R,2))
+    y² = y .* y
+    @test all(isreal.(y².mul.factors[2]))
+    @test all(y².mul.factors[2] .== abs2.(y.mul.factors[2]))
+
     @testset "Lazy densities" begin
         uv = u .⋆ v
         @test uv isa FDDensity
@@ -110,6 +115,13 @@ end
         copyto!(ww′, uuvv)
 
         @test norm(χ'ww′ .- fw.(r)) == 0
+
+        yy = y .⋆ y
+        @test yy isa FDDensity
+        wy = similar(y)
+        copyto!(wy, yy)
+        @test all(isreal.(wy.mul.factors[2]))
+        @test all(wy.mul.factors[2] .== abs2.(y.mul.factors[2]))
     end
 end
 

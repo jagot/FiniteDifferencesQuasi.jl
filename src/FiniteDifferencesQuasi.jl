@@ -181,7 +181,8 @@ function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,M<:MulQu
     A,ca = a.mul.factors
     B,cb = b.mul.factors
     A == B || throw(DimensionMismatch("Incompatible bases"))
-    c = ca .* cb
+    # We want the first MulQuasiArray to be conjugated, if complex
+    c = conj.(ca) .* cb
     A*c
 end
 
@@ -203,7 +204,8 @@ function Base.copyto!(ρ::FDVecOrMat{T,R}, ld::FDDensity{T,R}) where {T,R}
     Rρ,cρ = ρ.mul.factors
     Rρ == ld.R || throw(DimensionMismatch("Incompatible bases"))
     size(cρ) == size(ld.u) || throw(DimensionMismatch("Incompatible sizes"))
-    cρ .= ld.u .* ld.v
+    # We want the first MulQuasiArray to be conjugated, if complex
+    cρ .= conj.(ld.u) .* ld.v
     ρ
 end
 

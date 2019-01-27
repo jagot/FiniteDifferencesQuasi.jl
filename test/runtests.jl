@@ -3,6 +3,7 @@ import FiniteDifferencesQuasi: FirstDerivative, SecondDerivative, locs, FDDensit
 using IntervalSets
 using ContinuumArrays
 import ContinuumArrays: ℵ₁, materialize
+import ContinuumArrays.QuasiArrays: AbstractQuasiArray,  AbstractQuasiMatrix, MulQuasiArray
 using LinearAlgebra
 using LazyArrays
 import LazyArrays: ⋆
@@ -122,6 +123,76 @@ end
         copyto!(wy, yy)
         @test all(isreal.(wy.mul.factors[2]))
         @test all(wy.mul.factors[2] .== abs2.(y.mul.factors[2]))
+    end
+end
+
+function test_fd_derivatives(a, b, N, ::Type{B}, f::Function, g::Function, h::Function) where {B<:AbstractQuasiMatrix}
+    L = b-a
+    Δx = L/(N+1)
+    j = (1:N) .+ round(Int, a/Δx)
+
+    R = B(j, Δx)
+    D = Derivative(axes(R,1))
+
+    ∇ = R'D*R
+    ∇² = R'D'D*R
+
+    r = FiniteDifferencesQuasi.locs(R)
+
+    fv = f.(r)
+    gv = similar(fv)
+    hv = similar(fv)
+
+    mul!(gv, ∇, fv)
+    mul!(hv, ∇², fv)
+
+    δg = gv-g.(r)
+    δh = hv-h.(r)
+
+    r,fv,gv,hv,δg,δh,step(R)
+end
+
+function compute_derivative_errors(a, b, Ns, ::Type{B}, f::Function, g::Function, h::Function) where {B<:AbstractQuasiMatrix}
+    errors = map(Ns) do N
+        r,fv,gv,hv,δg,δh,Δx = test_fd_derivatives(a, b, N, B, f, g, h)
+
+        [norm(δg)*Δx norm(δh)*Δx]
+    end |> e -> vcat(e...)
+
+    ϵg = errors[:,1]
+    ϵh = errors[:,2]
+
+    # To avoid the effect of round-off errors on the order
+    # estimation.
+    ig,ih = [argmin(ϵ) - 1 for ϵ in [ϵg, ϵh]]
+
+    loghs = log10.(1.0 ./ Ns)
+    error_slope = (i,ϵ) -> [loghs[1:i] ones(i)] \ log10.(ϵ[1:i])
+    pg = error_slope(ig, ϵg)[1]
+    ph = error_slope(ig, ϵh)[1]
+
+    ϵg,ϵh,pg,ph
+end
+
+@testset "Derivative accuracy" begin
+    Ns = 2 .^ (5:20)
+
+    d = 1.0
+    a,b = √d*[-1,1]
+
+    # The functions need to vanish at the boundaries, for the
+    # derivative approximation to be valid (only Dirichlet0 boundary
+    # conditions implemented).
+    f = x -> exp(-1/(d-x^2))
+    g = x -> -2*exp(-1/(d-x^2))*x/((d-x^2)^2)
+    h = x -> -2*exp(-1/(d-x^2))*(d^2 + 2*(d-1)*x^2-3x^4)/((d-x^2)^4)
+
+    for (order,B) in [(2,FiniteDifferences),
+                      (4,NumerovFiniteDifferences)]
+        ϵg,ϵh,pg,ph = compute_derivative_errors(a, b, Ns, B, f, g, h)
+
+        @test isapprox(pg, order, atol=0.03) || pg > order
+        @test isapprox(ph, order, atol=0.03) || ph > order
     end
 end
 

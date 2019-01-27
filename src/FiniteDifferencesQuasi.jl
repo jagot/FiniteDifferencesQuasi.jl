@@ -74,13 +74,17 @@ function LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD,V}) where {
     a*b*step(B)
 end
 
-# * Cartesian finite differences
+# * Various finite differences
+# ** Cartesian finite differences
 struct FiniteDifferences{T,I} <: AbstractFiniteDifferences{T,I}
     j::UnitRange{I}
     Δx::T
 end
+FiniteDifferences(j::UnitRange{I}, Δx::T) where {T<:Real,I<:Integer} =
+    FiniteDifferences{T,I}(j, Δx)
+
 FiniteDifferences(n::I, Δx::T) where {T<:Real,I<:Integer} =
-    FiniteDifferences{T,I}(1:n, Δx)
+    FiniteDifferences(1:n, Δx)
 
 locs(B::FiniteDifferences) = B.j*B.Δx
 step(B::FiniteDifferences{T}) where {T} = B.Δx
@@ -88,7 +92,7 @@ step(B::FiniteDifferences{T}) where {T} = B.Δx
 show(io::IO, B::FiniteDifferences{T}) where {T} =
     write(io, "Finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
 
-# * Radial finite differences
+# ** Radial finite differences
 # Specialized finite differences for the case where there is
 # Dirichlet0 boundary condition at r = 0.
 struct RadialDifferences{T,I} <: AbstractFiniteDifferences{T,I}
@@ -110,6 +114,122 @@ step(B::RadialDifferences{T}) where {T} = B.ρ
 show(io::IO, B::RadialDifferences{T}) where T =
     write(io, "Radial finite differences basis {$T} on $(axes(B,1)) (formally 0..$(rightendpoint(axes(B,1)))) with $(size(B,2)) points spaced by ρ = $(B.ρ)")
 
+
+# ** Numerov finite differences
+#=
+This is an implementation of finite difference scheme described in
+
+- Muller, H. G. (1999). An Efficient Propagation Scheme for the
+  Time-Dependent Schrödinger equation in the Velocity Gauge. Laser
+  Physics, 9(1), 138–148.
+
+where the first derivative is approximated as
+
+\[\partial f =
+\left(1+\frac{h^2}{6}\Delta_2\right)^{-1}
+\Delta_1 f
+\equiv
+M_1^{-1}\tilde{\Delta}_1 f,\]
+where
+\[M_1 \equiv
+\frac{1}{6}
+\begin{bmatrix}
+4+\lambda' & 1 &\\
+1 & 4 & 1\\
+& 1 & 4 & \ddots\\
+&&\ddots&\ddots\\
+\end{bmatrix},\]
+and
+\[\tilde{\Delta}_1 \equiv
+\frac{1}{2h}
+\begin{bmatrix}
+\lambda & 1 &\\
+-1 &  & 1\\
+& -1 &  & \ddots\\
+&&\ddots&\ddots\\
+\end{bmatrix},\]
+
+where \(\lambda=\lambda'=\sqrt{3}-2\) for problems with a singularity
+at the boundary \(r=0\) and zero otherwise; and the second derivative
+as
+
+\[\partial^2 f =
+\left(1+\frac{h^2}{12}\Delta_2\right)^{-1}
+\Delta_2 f
+\equiv
+-2M_2^{-1}\Delta_2 f,\]
+where
+\[M_2 \equiv
+-\frac{1}{6}
+\begin{bmatrix}
+10-2\delta\beta_1 & 1 &\\
+1 & 10 & 1\\
+& 1 & 10 & \ddots\\
+&&\ddots&\ddots\\
+\end{bmatrix},\]
+and
+\[\Delta_2 \equiv
+-\frac{1}{h^2}
+\begin{bmatrix}
+-2(1+\delta\beta_1) & 1 &\\
+1 & -2 & 1\\
+& 1 & -2 & \ddots\\
+&&\ddots&\ddots\\
+\end{bmatrix},\]
+
+where, again, \(\delta\beta_1 = -Zh[12-10Zh]^{-1}\) is a correction
+introduced for problems singular at the origin.
+
+=#
+
+struct NumerovFiniteDifferences{T,I} <: AbstractFiniteDifferences{T,I}
+    j::UnitRange{I}
+    Δx::T
+    # Used for radial problems with a singularity at r = 0.
+    λ::T
+    δβ₁::T
+end
+
+function NumerovFiniteDifferences(j::UnitRange{I}, Δx::T, singular_origin::Bool=false, Z=zero(T)) where {T<:Real,I<:Integer}
+    λ,δβ₁ = if singular_origin
+        first(j) == 1 ||
+            throw(ArgumentError("Singular origin correction only valid when grid starts at Δx (i.e. `j[1] == 1`)"))
+        # Eqs. (20,17), Muller (1999)
+        (√3 - 2),(-Z*Δx/(12 - 10Z*Δx))
+    else
+        zero(T),zero(T)
+    end
+    NumerovFiniteDifferences{T,I}(j, Δx, λ, δβ₁)
+end
+
+NumerovFiniteDifferences(n::I, Δx::T, args...) where {T<:Real,I<:Integer} =
+    NumerovFiniteDifferences(1:n, Δx, args...)
+
+locs(B::NumerovFiniteDifferences) = B.j*B.Δx
+step(B::NumerovFiniteDifferences{T}) where {T} = B.Δx
+
+show(io::IO, B::NumerovFiniteDifferences{T}) where {T} =
+    write(io, "Numerov finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
+
+mutable struct NumerovDerivative{T,Tri,Mat}
+    Δ::Tri
+    M::Mat
+    c::T
+end
+
+Base.:(*)(∂::ND,a::T) where {T,ND<:NumerovDerivative{T}} =
+    NumerovDerivative(∂.Δ, ∂.M, ∂.c*a)
+
+Base.:(*)(a::T,∂::ND) where {T,ND<:NumerovDerivative{T}} =
+    ∂ * a
+
+function LinearAlgebra.mul!(y, ∂::ND, x) where {ND<:NumerovDerivative}
+    mul!(y, ∂.Δ, x)
+    ldiv!(∂.M, y)
+    lmul!(∂.c, y)
+    y
+end
+
 # * Scalar operators
 
 Matrix(f::Function, B::AbstractFiniteDifferences{T}) where T = Diagonal(f.(locs(B)))
@@ -124,22 +244,30 @@ Matrix(::UniformScaling, B::AbstractFiniteDifferences{T}) where T = Diagonal(one
 α( ::RadialDifferences,    j::Integer)         = j^2/(j^2 - 1/4)
 β(B::RadialDifferences{T}, j::Integer) where T = (j^2 - j + 1/2)/(j^2 - j + 1/4) + (j == 1 ? B.δβ₁ : zero(T))
 
+α( ::NumerovFiniteDifferences{T}) where T = one(T)
+β(B::NumerovFiniteDifferences{T}, j::Integer) where T = one(T) + (j == 1 ? B.δβ₁ : zero(T))
+
 α(B::RadialDifferences) = α.(Ref(B), B.j[1:end-1])
-β(B::RadialDifferences) = β.(Ref(B), B.j)
+β(B::Union{RadialDifferences,NumerovFiniteDifferences}) = β.(Ref(B), B.j)
 
 const FirstDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Tuple,<:Tuple{<:QuasiAdjoint{<:Any,<:Basis},<:Derivative,<:Basis}}
 const SecondDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Tuple,<:Tuple{<:QuasiAdjoint{<:Any,<:Basis},<:QuasiAdjoint{<:Any,<:Derivative},<:Derivative,<:Basis}}
-const FirstOrSecondDerivative = Union{FirstDerivative,SecondDerivative}
+const FirstOrSecondDerivative{Basis} = Union{FirstDerivative{Basis},SecondDerivative{Basis}}
 
 function copyto!(dest::Tridiagonal{T}, M::FirstDerivative) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
 
     B = last(M.factors)
-    a = α(B)/2step(B)
 
+    # Central difference approximation
+    a = α(B)/2step(B)
     dest.dl .= -a
     dest.d .= zero(T)
     dest.du .= a
+
+    if B isa NumerovFiniteDifferences && first(B.j) == 1
+        dest.d[1] += B.λ
+    end
 
     dest
 end
@@ -169,6 +297,41 @@ function similar(M::SecondDerivative, ::Type{T}) where T
 end
 
 materialize(M::FirstOrSecondDerivative) = copyto!(similar(M, eltype(M)), M)
+
+function NumerovDerivative(::Type{T}, Δ::Tri, ∇::FirstDerivative) where {T,Tri}
+    B = last(∇.factors)
+    # M₁ = Diagonal{T}(I, size(B,2))
+
+    M₁ = similar(Δ)
+    M₁.dl .= 1
+    M₁.d .= 4
+    M₁.du .= 1
+
+    # Eq. (20ff), Muller (1999), λ = λ′ = √3 - 2, but only if
+    # `singular_origin==true`.
+    B.j[1] == 1 && (M₁.d[1] += B.λ)
+
+    M₁ /= 6one(T)
+
+    NumerovDerivative(Δ, factorize(M₁), one(T))
+end
+
+function NumerovDerivative(::Type{T}, Δ::Tri, ∇²::SecondDerivative) where {T,Tri}
+    B = last(∇².factors)
+
+    M₂ = similar(Δ)
+    M₂.dv .= 10
+    M₂.ev .= 1
+
+    # Eq. (17), Muller (1999)
+    B.j[1] == 1 && (M₂.dv[1] -= 2B.δβ₁)
+
+    M₂ /= -6one(T)
+    NumerovDerivative(Δ, factorize(M₂), -2one(T))
+end
+
+materialize(M::FirstOrSecondDerivative{NumerovFiniteDifferences{T}}) where T =
+    NumerovDerivative(T, copyto!(similar(M, eltype(M)), M), M)
 
 # * Projections
 
@@ -211,6 +374,6 @@ end
 
 # * Exports
 
-export AbstractFiniteDifferences, FiniteDifferences, RadialDifferences, Derivative, dot
+export AbstractFiniteDifferences, FiniteDifferences, RadialDifferences, NumerovFiniteDifferences, Derivative, dot
 
 end # module

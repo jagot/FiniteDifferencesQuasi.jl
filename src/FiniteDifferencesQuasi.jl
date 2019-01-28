@@ -211,22 +211,58 @@ step(B::NumerovFiniteDifferences{T}) where {T} = B.Δx
 show(io::IO, B::NumerovFiniteDifferences{T}) where {T} =
     write(io, "Numerov finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
 
-mutable struct NumerovDerivative{T,Tri,Mat}
+mutable struct NumerovDerivative{T,Tri,Mat,MatFact}
     Δ::Tri
     M::Mat
+    M⁻¹::MatFact
     c::T
 end
+NumerovDerivative(Δ::Tri, M::Mat, c::T) where {T,Tri,Mat} =
+    NumerovDerivative(Δ, M, factorize(M), c)
 
-Base.:(*)(∂::ND,a::T) where {T,ND<:NumerovDerivative{T}} =
-    NumerovDerivative(∂.Δ, ∂.M, ∂.c*a)
+Base.size(∂::ND, args...) where {ND<:NumerovDerivative} = size(∂.Δ, args...)
+Base.eltype(∂::ND) where {ND<:NumerovDerivative} = eltype(∂.Δ)
 
-Base.:(*)(a::T,∂::ND) where {T,ND<:NumerovDerivative{T}} =
+Base.:(*)(∂::ND,a::T) where {T<:Number,ND<:NumerovDerivative} =
+    NumerovDerivative(∂.Δ, ∂.M, ∂.M⁻¹, ∂.c*a)
+
+Base.:(*)(a::T,∂::ND) where {T<:Number,ND<:NumerovDerivative} =
     ∂ * a
+
+Base.:(/)(∂::ND,a::T) where {T<:Number,ND<:NumerovDerivative} =
+    ∂ * inv(a)
 
 function LinearAlgebra.mul!(y, ∂::ND, x) where {ND<:NumerovDerivative}
     mul!(y, ∂.Δ, x)
-    ldiv!(∂.M, y)
+    ldiv!(∂.M⁻¹, y)
     lmul!(∂.c, y)
+    y
+end
+
+for op in [:(+), :(-)]
+    @eval begin
+        function Base.$op(∂::ND, B::Mat) where {ND<:NumerovDerivative,
+                                                Mat<:Union{Diagonal,Tridiagonal,SymTridiagonal, UniformScaling}}
+            B̃ = inv(∂.c)*∂.M*B
+            NumerovDerivative($op(∂.Δ, B̃), ∂.M, ∂.M⁻¹, ∂.c)
+        end
+    end
+end
+
+struct NumerovFactorization{TriFact,Mat}
+    Δ⁻¹::TriFact
+    M::Mat
+end
+
+Base.size(∂⁻¹::NF, args...) where {NF<:NumerovFactorization} = size(∂⁻¹.M, args...)
+Base.eltype(∂⁻¹::NF) where {NF<:NumerovFactorization} = eltype(∂⁻¹.M)
+
+LinearAlgebra.factorize(∂::ND) where {ND<:NumerovDerivative} =
+    NumerovFactorization(factorize(∂.c*∂.Δ), ∂.M)
+
+function LinearAlgebra.ldiv!(y, ∂⁻¹::NF, x) where {NF<:NumerovFactorization}
+    mul!(y, ∂⁻¹.M, x)
+    ldiv!(∂⁻¹.Δ⁻¹, y)
     y
 end
 
@@ -313,7 +349,7 @@ function NumerovDerivative(::Type{T}, Δ::Tri, ∇::FirstDerivative) where {T,Tr
 
     M₁ /= 6one(T)
 
-    NumerovDerivative(Δ, factorize(M₁), one(T))
+    NumerovDerivative(Δ, M₁, one(T))
 end
 
 function NumerovDerivative(::Type{T}, Δ::Tri, ∇²::SecondDerivative) where {T,Tri}
@@ -327,7 +363,7 @@ function NumerovDerivative(::Type{T}, Δ::Tri, ∇²::SecondDerivative) where {T
     B.j[1] == 1 && (M₂.dv[1] -= 2B.δβ₁)
 
     M₂ /= -6one(T)
-    NumerovDerivative(Δ, factorize(M₂), -2one(T))
+    NumerovDerivative(Δ, M₂, -2one(T))
 end
 
 materialize(M::FirstOrSecondDerivative{NumerovFiniteDifferences{T}}) where T =

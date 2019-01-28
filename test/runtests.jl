@@ -126,53 +126,7 @@ end
     end
 end
 
-function test_fd_derivatives(a, b, N, ::Type{B}, f::Function, g::Function, h::Function) where {B<:AbstractQuasiMatrix}
-    L = b-a
-    Δx = L/(N+1)
-    j = (1:N) .+ round(Int, a/Δx)
-
-    R = B(j, Δx)
-    D = Derivative(axes(R,1))
-
-    ∇ = R'D*R
-    ∇² = R'D'D*R
-
-    r = FiniteDifferencesQuasi.locs(R)
-
-    fv = f.(r)
-    gv = similar(fv)
-    hv = similar(fv)
-
-    mul!(gv, ∇, fv)
-    mul!(hv, ∇², fv)
-
-    δg = gv-g.(r)
-    δh = hv-h.(r)
-
-    r,fv,gv,hv,δg,δh,step(R)
-end
-
-function compute_derivative_errors(a, b, Ns, ::Type{B}, f::Function, g::Function, h::Function) where {B<:AbstractQuasiMatrix}
-    errors = map(Ns) do N
-        r,fv,gv,hv,δg,δh,Δx = test_fd_derivatives(a, b, N, B, f, g, h)
-
-        [norm(δg)*Δx norm(δh)*Δx]
-    end |> e -> vcat(e...)
-
-    ϵg = errors[:,1]
-    ϵh = errors[:,2]
-
-    # To avoid the effect of round-off errors on the order
-    # estimation.
-    ig,ih = [argmin(ϵ) - 1 for ϵ in [ϵg, ϵh]]
-
-    loghs = log10.(1.0 ./ Ns)
-    error_slope = (i,ϵ) -> [loghs[1:i] ones(i)] \ log10.(ϵ[1:i])
-    pg = error_slope(ig, ϵg)[1]
-    ph = error_slope(ig, ϵh)[1]
-
-    ϵg,ϵh,pg,ph
-end
+include("derivative_accuracy_utils.jl")
 
 @testset "Derivative accuracy" begin
     Ns = 2 .^ (5:20)
@@ -196,48 +150,84 @@ end
     end
 end
 
-# This tests that the discretization of the Laplacian, especially near
+
+@testset "Particle in a box" begin
+    @testset "Eigenvalues convergence rate" begin
+        Ns = 2 .^ (7:14)
+        nev = 3
+        L = 1.0
+        for (order,B) in [(2,FiniteDifferences),
+                          (4,NumerovFiniteDifferences)]
+            ϵλ,slopes,elapsed = compute_diagonalization_errors(test_fd_particle_in_a_box,
+                                                               B, Ns, L, nev)
+            for p in slopes
+                @test isapprox(p, order, atol=0.1) || p > order
+            end
+        end
+    end
+end
+
+# This tests the discretization of the Laplacian, especially near
 # the origin where the potential term is singular.
 @testset "Hydrogen bound states" begin
-    rₘₐₓ = 300
-    ρ = 0.25
-    N = ceil(Int, rₘₐₓ/ρ + 1/2)
+    @testset "Eigenvalues and eigenvectors" begin
+        rₘₐₓ = 300
+        ρ = 0.25
+        N = ceil(Int, rₘₐₓ/ρ + 1/2)
 
-    R = RadialDifferences(N, ρ)
+        R = RadialDifferences(N, ρ)
 
-    D = Derivative(Base.axes(R,1))
-    ∇² = R'⋆D'⋆D⋆R
-    Tm = materialize(∇²)
-    Tm /= -2
+        D = Derivative(Base.axes(R,1))
+        ∇² = R'⋆D'⋆D⋆R
+        Tm = materialize(∇²)
+        Tm /= -2
 
-    V = Matrix(r -> -1/r, R)
+        V = Matrix(r -> -1/r, R)
 
-    H = Tm + V
+        H = Tm + V
 
-    ee = eigen(H)
+        ee = eigen(H)
 
-    n = 1:10
-    λₐ = -inv.(2n.^2)
+        n = 1:10
+        λₐ = -inv.(2n.^2)
 
-    abs_error = ee.values[n] - λₐ
-    rel_error = abs_error ./ abs.(1e-10 .+ abs.(λₐ))
+        abs_error = ee.values[n] - λₐ
+        rel_error = abs_error ./ abs.(1e-10 .+ abs.(λₐ))
 
-    @test abs_error[1] < 3e-5
-    @test all(rel_error .< 1e-3)
+        @test abs_error[1] < 3e-5
+        @test all(rel_error .< 1e-3)
 
-    r = locs(R)
-    # Table 2.2 Foot (2005)
-    Rₐ₀ = [2exp.(-r),
-           -(1/2)^1.5 * 2 * (1 .- r/2).*exp.(-r/2), # Why the minus?
-           (1/3)^1.5 * 2 * (1 .- 2r/3 .+ 2/3*(r/3).^2).*exp.(-r/3)]
-    expected_errors = [1e-3,1e-3,2e-3]
+        r = locs(R)
+        # Table 2.2 Foot (2005)
+        Rₐ₀ = [2exp.(-r),
+               -(1/2)^1.5 * 2 * (1 .- r/2).*exp.(-r/2), # Why the minus?
+               (1/3)^1.5 * 2 * (1 .- 2r/3 .+ 2/3*(r/3).^2).*exp.(-r/3)]
+        expected_errors = [1e-3,1e-3,2e-3]
 
-    for i = 1:3
-        v = ee.vectors[:,i]
-        N = norm(v)*√ρ
-        # The sign from the diagonalization is arbitrary; make max lobe positive
-        N *= sign(v[argmax(abs.(v))])
-        abs_error = v/N .- r.*Rₐ₀[i]
-        @test norm(abs_error)/abs(1e-10+norm(r.*Rₐ₀[i])) < expected_errors[i]
+        for i = 1:3
+            v = ee.vectors[:,i]
+            N = norm(v)*√ρ
+            # The sign from the diagonalization is arbitrary; make max lobe positive
+            N *= sign(v[argmax(abs.(v))])
+            abs_error = v/N .- r.*Rₐ₀[i]
+            @test norm(abs_error)/abs(1e-10+norm(r.*Rₐ₀[i])) < expected_errors[i]
+        end
+    end
+
+    @testset "Eigenvalues convergence rate" begin
+        Ns = 2 .^ (7:14)
+        nev = 3
+        rₘₐₓ = 100.0
+        Z = 1.0
+        ℓ = 0
+
+        for (order,B) in [(2,RadialDifferences),
+                          (4,NumerovFiniteDifferences)]
+            ϵλ,slopes,elapsed = compute_diagonalization_errors(test_singular_fd_scheme,
+                                                               B, Ns, rₘₐₓ, Z, ℓ, nev)
+            for p in slopes
+                @test isapprox(p, order, atol=0.04) || p > order
+            end
+        end
     end
 end

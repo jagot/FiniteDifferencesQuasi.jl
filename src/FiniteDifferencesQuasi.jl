@@ -211,7 +211,7 @@ step(B::NumerovFiniteDifferences{T}) where {T} = B.Δx
 show(io::IO, B::NumerovFiniteDifferences{T}) where {T} =
     write(io, "Numerov finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
 
-mutable struct NumerovDerivative{T,Tri,Mat,MatFact}
+mutable struct NumerovDerivative{T,Tri,Mat,MatFact} <: AbstractMatrix{T}
     Δ::Tri
     M::Mat
     M⁻¹::MatFact
@@ -220,8 +220,15 @@ end
 NumerovDerivative(Δ::Tri, M::Mat, c::T) where {T,Tri,Mat} =
     NumerovDerivative(Δ, M, factorize(M), c)
 
+Base.show(io::IO, ∂::ND) where {ND<:NumerovDerivative} =
+    write(io, "$(size(∂,1))×$(size(∂,2)) $(ND)")
+
+Base.show(io::IO, ::MIME"text/plain", ∂::ND) where {ND<:NumerovDerivative} =
+    show(io, ∂)
+
 Base.size(∂::ND, args...) where {ND<:NumerovDerivative} = size(∂.Δ, args...)
 Base.eltype(∂::ND) where {ND<:NumerovDerivative} = eltype(∂.Δ)
+Base.axes(∂::ND, args...) where {ND<:NumerovDerivative} = axes(∂.Δ, args...)
 
 Base.:(*)(∂::ND,a::T) where {T<:Number,ND<:NumerovDerivative} =
     NumerovDerivative(∂.Δ, ∂.M, ∂.M⁻¹, ∂.c*a)
@@ -232,19 +239,29 @@ Base.:(*)(a::T,∂::ND) where {T<:Number,ND<:NumerovDerivative} =
 Base.:(/)(∂::ND,a::T) where {T<:Number,ND<:NumerovDerivative} =
     ∂ * inv(a)
 
-function LinearAlgebra.mul!(y, ∂::ND, x) where {ND<:NumerovDerivative}
+function LinearAlgebra.mul!(y::Y, ∂::ND, x::X) where {Y<:AbstractVector,
+                                                      ND<:NumerovDerivative,
+                                                      X<:AbstractVector}
     mul!(y, ∂.Δ, x)
     ldiv!(∂.M⁻¹, y)
     lmul!(∂.c, y)
     y
 end
 
+function Base.copyto!(y::Y, ∂::Mul{<:Tuple,Tuple{<:NumerovDerivative, X}}) where {X<:AbstractVector,Y<:AbstractVector}
+    C = ∂.C
+    mul!(C, ∂.A, ∂.B)
+    lmul!(∂.α, C)
+    C
+end
+
 for op in [:(+), :(-)]
-    @eval begin
-        function Base.$op(∂::ND, B::Mat) where {ND<:NumerovDerivative,
-                                                Mat<:Union{Diagonal,Tridiagonal,SymTridiagonal, UniformScaling}}
-            B̃ = inv(∂.c)*∂.M*B
-            NumerovDerivative($op(∂.Δ, B̃), ∂.M, ∂.M⁻¹, ∂.c)
+    for Mat in [:Diagonal, :Tridiagonal, :SymTridiagonal, :UniformScaling]
+        @eval begin
+            function Base.$op(∂::ND, B::$Mat) where {ND<:NumerovDerivative}
+                B̃ = inv(∂.c)*∂.M*B
+                NumerovDerivative($op(∂.Δ, B̃), ∂.M, ∂.M⁻¹, ∂.c)
+            end
         end
     end
 end

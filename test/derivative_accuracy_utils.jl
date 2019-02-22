@@ -5,7 +5,12 @@ function test_fd_derivatives(a, b, N, ::Type{B}, f::Function, g::Function, h::Fu
     Δx = L/(N+1)
     j = (1:N) .+ round(Int, a/Δx)
 
-    R = B(j, Δx)
+    R = if B == RadialDifferences
+        RadialDifferences(N, Δx, 1.0, 0.0)
+    else
+        B(j, Δx)
+    end
+
     D = Derivative(axes(R,1))
 
     ∇ = R'D*R
@@ -30,8 +35,7 @@ function error_slope(loghs,ϵ)
     # To avoid the effect of round-off errors on the order
     # estimation.
     i = argmin(abs.(ϵ)) - 1
-    println(i)
-    
+
     ([loghs[1:i] ones(i)] \ log10.(abs.(ϵ[1:i])))[1]
 end
 
@@ -50,6 +54,19 @@ function compute_derivative_errors(a, b, Ns, ::Type{B}, f::Function, g::Function
     ph = error_slope(loghs, ϵh)
 
     ϵg,ϵh,pg,ph
+end
+
+function derivative_test_functions(d)
+    a,b = √d*[-1,1]
+
+    # The functions need to vanish at the boundaries, for the
+    # derivative approximation to be valid (only Dirichlet0 boundary
+    # conditions implemented).
+    f = x -> exp(-1/(d-x^2))
+    g = x -> -2*exp(-1/(d-x^2))*x/((d-x^2)^2)
+    h = x -> -2*exp(-1/(d-x^2))*(d^2 + 2*(d-1)*x^2-3x^4)/((d-x^2)^4)
+
+    f,g,h,a,b
 end
 
 function norm_rot!(v)
@@ -77,16 +94,16 @@ function diagonalize_fd_hamiltonian(H, R::B, nev, σ; method=:arnoldi_shift_inve
     end
     schur,history = partialschur(A, nev=nev, which=target)
     println(history)
-    
+
     ϕ = [norm_rot!(R*schur.Q[:,j]) for j = 1:nev]
-    
+
     θ = diag(schur.R)
     λ = if method == :arnoldi_shift_invert
         σ .+ inv.(θ)
     else
         θ
     end
-    
+
     λ,ϕ
 end
 
@@ -98,17 +115,17 @@ end
 
 function test_fd_particle_in_a_box(::Type{B}, N, L, nev; kwargs...) where {B<:AbstractQuasiMatrix}
     R = B(1:N, L/(N+1))
-    
+
     Tm = get_kinetic_operator(R)
     λ,ϕ = diagonalize_fd_hamiltonian(Tm, R, nev, 0.0; kwargs...)
-    
+
     r = FiniteDifferencesQuasi.locs(R)
-    
+
     n = 1:nev
     δλ = λ - n.^2*π^2/(2L^2)
 
     # Could/should also test eigenvectors
-    
+
     λ,ϕ,r,R,δλ
 end
 
@@ -126,7 +143,7 @@ function test_singular_fd_scheme(::Type{B}, N, rₘₐₓ, Z, ℓ, nev; kwargs..
     n = 1:nev
     λₐ = -inv.(2(n .+ ℓ).^2)
 
-    Tm = get_kinetic_operator(R)    
+    Tm = get_kinetic_operator(R)
     V = Matrix(r -> -1/r + ℓ*(ℓ+1)/2r^2, R)
     H = Tm + V
     λ,ϕ = diagonalize_fd_hamiltonian(H, R, nev, 1.1λₐ[1]; kwargs...)
@@ -136,7 +153,7 @@ function test_singular_fd_scheme(::Type{B}, N, rₘₐₓ, Z, ℓ, nev; kwargs..
     δλ = λ - λₐ
 
     # Could/should also test eigenvectors
-    
+
     λ,ϕ,r,R,δλ
 end
 
@@ -155,6 +172,6 @@ function compute_diagonalization_errors(f::Function, ::Type{B}, Ns, args...; kwa
     slopes = map(1:size(errors,2)) do j
         error_slope(loghs, errors[:,j])
     end
-    
-    errors,slopes,elapsed    
+
+    errors,slopes,elapsed
 end

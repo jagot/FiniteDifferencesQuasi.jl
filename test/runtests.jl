@@ -132,18 +132,18 @@ include("derivative_accuracy_utils.jl")
     Ns = 2 .^ (5:20)
 
     d = 1.0
-    a,b = √d*[-1,1]
-
-    # The functions need to vanish at the boundaries, for the
-    # derivative approximation to be valid (only Dirichlet0 boundary
-    # conditions implemented).
-    f = x -> exp(-1/(d-x^2))
-    g = x -> -2*exp(-1/(d-x^2))*x/((d-x^2)^2)
-    h = x -> -2*exp(-1/(d-x^2))*(d^2 + 2*(d-1)*x^2-3x^4)/((d-x^2)^4)
+    f,g,h,a,b = derivative_test_functions(d)
 
     for (order,B) in [(2,FiniteDifferences),
                       (4,NumerovFiniteDifferences)]
         ϵg,ϵh,pg,ph = compute_derivative_errors(a, b, Ns, B, f, g, h)
+
+        @test isapprox(pg, order, atol=0.03) || pg > order
+        @test isapprox(ph, order, atol=0.03) || ph > order
+    end
+    let (order,B) = (2,RadialDifferences)
+        dd = b-a
+        ϵg,ϵh,pg,ph = compute_derivative_errors(0, dd, Ns, B, x -> f(x-dd/2), x -> g(x-dd/2), x -> h(x-dd/2))
 
         @test isapprox(pg, order, atol=0.03) || pg > order
         @test isapprox(ph, order, atol=0.03) || ph > order

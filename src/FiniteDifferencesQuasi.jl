@@ -402,13 +402,14 @@ function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,M<:MulQu
     A*c
 end
 
-struct FDDensity{T,B<:AbstractFiniteDifferences,V<:AbstractVecOrMat{T}}
+struct FDDensity{T,B<:AbstractFiniteDifferences,
+                 U<:AbstractVecOrMat{T},V<:AbstractVecOrMat{T}}
     R::B
-    u::V
+    u::U
     v::V
 end
 
-function Base.Broadcast.broadcasted(::typeof(⋆), a::V, b::V) where {T,B<:AbstractFiniteDifferences,V<:FDVecOrMat{T,B}}
+function Base.Broadcast.broadcasted(::typeof(⋆), a::V₁, b::V₂) where {T,B<:AbstractFiniteDifferences,V₁<:FDVecOrMat{T,B},V₂<:FDVecOrMat{T,B}}
     axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
     Ra,ca = a.mul.factors
     Rb,cb = b.mul.factors

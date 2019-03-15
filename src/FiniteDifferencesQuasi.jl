@@ -114,6 +114,15 @@ struct RadialDifferences{T,I} <: AbstractFiniteDifferences{T,I}
         new{T,I}(Base.OneTo(n), ρ, convert(T,Z), convert(T,δβ₁))
 end
 
+"""
+    RadialDifferences(rₘₐₓ::T, n::I, args...)
+
+Convenience constructor for [`RadialDifferences`](@ref) covering the
+open interval `(0,rₘₐₓ)` with `n` grid points.
+"""
+RadialDifferences(rₘₐₓ::T, n::I, args...) where {I<:Integer, T} =
+    RadialDifferences(n, rₘₐₓ/(n+one(T)/2), args...)
+
 locs(B::RadialDifferences{T}) where T = (B.j .- one(T)/2)*B.ρ
 step(B::RadialDifferences{T}) where {T} = B.ρ
 

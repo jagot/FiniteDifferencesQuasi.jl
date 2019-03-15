@@ -4,7 +4,7 @@ import Base: eltype, axes, size, ==, getindex, checkbounds, copyto!, similar, sh
 import Base.Broadcast: materialize
 
 using ContinuumArrays
-import ContinuumArrays: ℵ₁, Derivative
+import ContinuumArrays: ℵ₁, Derivative, Inclusion
 import ContinuumArrays.QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray
 
 using IntervalSets
@@ -21,34 +21,39 @@ abstract type AbstractFiniteDifferences{T,I<:Integer} <: AbstractQuasiMatrix{T} 
 
 eltype(::AbstractFiniteDifferences{T}) where T = T
 
-axes(B::AbstractFiniteDifferences{T}) where T = (first(locs(B))..last(locs(B)), Base.OneTo(length(locs(B))))
+axes(B::AbstractFiniteDifferences{T}) where T = (Inclusion(leftendpoint(B)..rightendpoint(B)), Base.OneTo(length(locs(B))))
 size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
 
 ==(A::AbstractFiniteDifferences,B::AbstractFiniteDifferences) = locs(A) == locs(B)
 
-getindex(B::AbstractFiniteDifferences{T}, x::Real, i::Integer) where T =
-    x == locs(B)[i] ? one(T) : zero(T)
+function getindex(B::AbstractFiniteDifferences{T}, x::Real, i::Integer) where T
+    li = locs(B)[i]
+    δx = step(B)
+    x = clamp((x-li)/step(B), -one(T), one(T))
+    one(T) - abs(x)
+end
 
 # * Types
 
-const FDVector{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,1,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractVector}}}
-const FDMatrix{T,B<:AbstractFiniteDifferences} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:AbstractMatrix}}}
-const FDVecOrMat{T,B} = Union{FDVector{T,B},FDMatrix{T,B}}
+const FDArray{T,N,B<:AbstractFiniteDifferences} = MulQuasiArray{T,N,<:Mul{<:Any,<:Tuple{<:B,<:AbstractArray{T,N}}}}
+const FDVector{T,B<:AbstractFiniteDifferences} = FDArray{T,1,B}
+const FDMatrix{T,B<:AbstractFiniteDifferences} = FDArray{T,2,B}
+const FDVecOrMat{T,B<:AbstractFiniteDifferences} = Union{FDVector{T,B},FDMatrix{T,B}}
 
-const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Mul{<:Tuple,<:Tuple{<:B,<:M,<:QuasiAdjoint{<:Any,<:B}}}}
+const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Mul{<:Any,<:Tuple{<:B,<:M,<:QuasiAdjoint{<:Any,<:B}}}}
 
 const FDMatrixElement{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix,V<:AbstractVector} =
-    MulQuasiArray{T,0,<:Mul{<:Tuple,
+    MulQuasiArray{T,0,<:Mul{<:Any,
                             <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},
                                     <:B,<:M,<:QuasiAdjoint{<:Any,<:B},
                                     <:B,<:V}}}
 
 const FDInnerProduct{T,U,B<:AbstractFiniteDifferences{U},V<:AbstractVector{T}} =
-    Mul{<:Tuple, <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},<:B,<:V}}
+    Mul{<:Any, <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},<:B,<:V}}
 
 # * Mass matrix
-function materialize(M::Mul2{<:Any,<:Any,<:QuasiAdjoint{<:Any,<:FD},<:FD}) where {T,FD<:AbstractFiniteDifferences{T}}
-    Ac, B = M.factors
+function materialize(M::Mul{<:Any,<:Tuple{<:QuasiAdjoint{<:Any,<:FD},<:FD}}) where {T,FD<:AbstractFiniteDifferences{T}}
+    Ac, B = M.args
     axes(Ac,2) == axes(B,1) || throw(DimensionMismatch("axes must be same"))
     A = parent(Ac)
     A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
@@ -58,17 +63,17 @@ end
 # * Inner products
 
 function LinearAlgebra.norm(v::FDVecOrMat, p::Real=2)
-    B,c = v.mul.factors
+    B,c = v.applied.args
     norm(c, p)*(step(B)^(inv(p)))
 end
 
 function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
-    v.mul.factors[2][:] /= norm(v,p)
+    v.applied.args[2][:] /= norm(v,p)
     v
 end
 
 function LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD,V}) where {T,U,FD<:AbstractFiniteDifferences{T},V}
-    a,B′,B,b = inner_product.factors
+    a,B′,B,b = inner_product.args
     axes(B′.parent) == axes(B) ||
         throw(ArgumentError("Incompatible axes"))
     a*b*step(B)
@@ -89,8 +94,11 @@ FiniteDifferences(n::I, Δx::T) where {T<:Real,I<:Integer} =
 locs(B::FiniteDifferences) = B.j*B.Δx
 step(B::FiniteDifferences{T}) where {T} = B.Δx
 
+IntervalSets.leftendpoint(B::FiniteDifferences) = (B.j[1]-1)*step(B)
+IntervalSets.rightendpoint(B::FiniteDifferences) = (B.j[end]+1)*step(B)
+
 show(io::IO, B::FiniteDifferences{T}) where {T} =
-    write(io, "Finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
+    write(io, "Finite differences basis {$T} on $(axes(B,1).domain) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
 
 # ** Radial finite differences
 # Specialized finite differences for the case where there is
@@ -109,10 +117,13 @@ end
 locs(B::RadialDifferences{T}) where T = (B.j .- one(T)/2)*B.ρ
 step(B::RadialDifferences{T}) where {T} = B.ρ
 
+IntervalSets.leftendpoint(B::RadialDifferences{T}) where T = zero(T)
+IntervalSets.rightendpoint(B::RadialDifferences{T}) where T = (B.j[end]+one(T)/2)*step(B)
+
 ==(A::RadialDifferences,B::RadialDifferences) = locs(A) == locs(B) && A.Z == B.Z && A.δβ₁ == B.δβ₁
 
 show(io::IO, B::RadialDifferences{T}) where T =
-    write(io, "Radial finite differences basis {$T} on $(axes(B,1)) (formally 0..$(rightendpoint(axes(B,1)))) with $(size(B,2)) points spaced by ρ = $(B.ρ)")
+    write(io, "Radial finite differences basis {$T} on $(axes(B,1).domain) with $(size(B,2)) points spaced by ρ = $(B.ρ)")
 
 
 # ** Numerov finite differences
@@ -208,8 +219,11 @@ NumerovFiniteDifferences(n::I, Δx::T, args...) where {T<:Real,I<:Integer} =
 locs(B::NumerovFiniteDifferences) = B.j*B.Δx
 step(B::NumerovFiniteDifferences{T}) where {T} = B.Δx
 
+IntervalSets.leftendpoint(B::NumerovFiniteDifferences) = (B.j[1]-1)*step(B)
+IntervalSets.rightendpoint(B::NumerovFiniteDifferences) = (B.j[end]+1)*step(B)
+
 show(io::IO, B::NumerovFiniteDifferences{T}) where {T} =
-    write(io, "Numerov finite differences basis {$T} on $(axes(B,1)) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
+    write(io, "Numerov finite differences basis {$T} on $(axes(B,1).domain) with $(size(B,2)) points spaced by Δx = $(B.Δx)")
 
 mutable struct NumerovDerivative{T,Tri,Mat,MatFact} <: AbstractMatrix{T}
     Δ::Tri
@@ -248,7 +262,7 @@ function LinearAlgebra.mul!(y::Y, ∂::ND, x::X) where {Y<:AbstractVector,
     y
 end
 
-function Base.copyto!(y::Y, ∂::Mul{<:Tuple,Tuple{<:NumerovDerivative, X}}) where {X<:AbstractVector,Y<:AbstractVector}
+function Base.copyto!(y::Y, ∂::Mul{<:Any,Tuple{<:NumerovDerivative, X}}) where {X<:AbstractVector,Y<:AbstractVector}
     C = ∂.C
     mul!(C, ∂.A, ∂.B)
     lmul!(∂.α, C)
@@ -290,6 +304,7 @@ Matrix(::UniformScaling, B::AbstractFiniteDifferences{T}) where T = Diagonal(one
 
 # * Derivatives
 
+# ** Three-point stencils
 α(::FiniteDifferences{T}) where T = one(T)
 β(::FiniteDifferences{T}) where T = one(T)
 
@@ -303,14 +318,42 @@ Matrix(::UniformScaling, B::AbstractFiniteDifferences{T}) where T = Diagonal(one
 α(B::RadialDifferences) = α.(Ref(B), B.j[1:end-1])
 β(B::Union{RadialDifferences,NumerovFiniteDifferences}) = β.(Ref(B), B.j)
 
-const FirstDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Tuple,<:Tuple{<:QuasiAdjoint{<:Any,<:Basis},<:Derivative,<:Basis}}
-const SecondDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Tuple,<:Tuple{<:QuasiAdjoint{<:Any,<:Basis},<:QuasiAdjoint{<:Any,<:Derivative},<:Derivative,<:Basis}}
+# ** Dispatch aliases
+
+const FlatFirstDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Any, <:Tuple{
+    <:QuasiAdjoint{<:Any, <:Basis},
+    <:Derivative,
+    <:Basis}}
+const LazyFirstDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Any, <:Tuple{
+    <:Mul{<:Any, <:Tuple{
+        <:QuasiAdjoint{<:Any, <:Basis},
+        <:Derivative}},
+    <:Basis}}
+
+const FirstDerivative{Basis} = Union{FlatFirstDerivative{Basis}, LazyFirstDerivative{Basis}}
+
+const FlatSecondDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Any, <:Tuple{
+    <:QuasiAdjoint{<:Any, <:Basis},
+    <:QuasiAdjoint{<:Any, <:Derivative},
+    <:Derivative,
+    <:Basis}}
+const LazySecondDerivative{Basis<:AbstractFiniteDifferences} = Mul{<:Any, <:Tuple{
+    <:Mul{<:Any, <:Tuple{
+        <:Mul{<:Any, <:Tuple{
+            <:QuasiAdjoint{<:Any, <:Basis}, <:QuasiAdjoint{<:Any, <:Derivative}}},
+        <:Derivative}},
+    <:Basis}}
+
+const SecondDerivative{Basis} = Union{FlatSecondDerivative{Basis},LazySecondDerivative{Basis}}
+
 const FirstOrSecondDerivative{Basis} = Union{FirstDerivative{Basis},SecondDerivative{Basis}}
+
+# ** Materialization
 
 function copyto!(dest::Tridiagonal{T}, M::FirstDerivative) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
 
-    B = last(M.factors)
+    B = last(M.args)
 
     # Central difference approximation
     a = α(B)/2step(B)
@@ -326,7 +369,7 @@ function copyto!(dest::Tridiagonal{T}, M::FirstDerivative) where T
 end
 
 function similar(M::FirstDerivative, ::Type{T}) where T
-    B = last(M.factors)
+    B = last(M.args)
     n = size(B,2)
     Tridiagonal(Vector{T}(undef, n-1), Vector{T}(undef, n), Vector{T}(undef, n-1))
 end
@@ -334,7 +377,7 @@ end
 function copyto!(dest::SymTridiagonal{T}, M::SecondDerivative) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
 
-    B = last(M.factors)
+    B = last(M.args)
     δ² = step(B)^2
 
     dest.dv .= -2β(B)/δ²
@@ -344,7 +387,7 @@ function copyto!(dest::SymTridiagonal{T}, M::SecondDerivative) where T
 end
 
 function similar(M::SecondDerivative, ::Type{T}) where T
-    B = last(M.factors)
+    B = last(M.args)
     n = size(B,2)
     SymTridiagonal(Vector{T}(undef, n), Vector{T}(undef, n-1))
 end
@@ -352,7 +395,7 @@ end
 materialize(M::FirstOrSecondDerivative) = copyto!(similar(M, eltype(M)), M)
 
 function NumerovDerivative(::Type{T}, Δ::Tri, ∇::FirstDerivative) where {T,Tri}
-    B = last(∇.factors)
+    B = last(∇.args)
     # M₁ = Diagonal{T}(I, size(B,2))
 
     M₁ = similar(Δ)
@@ -370,7 +413,7 @@ function NumerovDerivative(::Type{T}, Δ::Tri, ∇::FirstDerivative) where {T,Tr
 end
 
 function NumerovDerivative(::Type{T}, Δ::Tri, ∇²::SecondDerivative) where {T,Tri}
-    B = last(∇².factors)
+    B = last(∇².args)
 
     M₂ = similar(Δ)
     M₂.dv .= 10
@@ -392,10 +435,10 @@ dot(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = f.(locs(B))
 
 # * Densities
 
-function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,M<:MulQuasiArray{T,N,<:Mul{<:Tuple,<:Tuple{<:AbstractFiniteDifferences,<:AbstractArray{T,N}}}}}
+function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,FD<:AbstractFiniteDifferences,M<:FDArray{T,N,FD}}
     axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
-    A,ca = a.mul.factors
-    B,cb = b.mul.factors
+    A,ca = a.applied.args
+    B,cb = b.applied.args
     A == B || throw(DimensionMismatch("Incompatible bases"))
     # We want the first MulQuasiArray to be conjugated, if complex
     c = conj.(ca) .* cb
@@ -411,14 +454,14 @@ end
 
 function Base.Broadcast.broadcasted(::typeof(⋆), a::V₁, b::V₂) where {T,B<:AbstractFiniteDifferences,V₁<:FDVecOrMat{T,B},V₂<:FDVecOrMat{T,B}}
     axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
-    Ra,ca = a.mul.factors
-    Rb,cb = b.mul.factors
+    Ra,ca = a.applied.args
+    Rb,cb = b.applied.args
     Ra == Rb || throw(DimensionMismatch("Incompatible bases"))
     FDDensity(Ra, ca, cb)
 end
 
 function Base.copyto!(ρ::FDVecOrMat{T,R}, ld::FDDensity{T,R}) where {T,R}
-    Rρ,cρ = ρ.mul.factors
+    Rρ,cρ = ρ.applied.args
     Rρ == ld.R || throw(DimensionMismatch("Incompatible bases"))
     size(cρ) == size(ld.u) || throw(DimensionMismatch("Incompatible sizes"))
     # We want the first MulQuasiArray to be conjugated, if complex

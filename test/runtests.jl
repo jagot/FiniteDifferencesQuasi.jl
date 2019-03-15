@@ -30,14 +30,14 @@ end
         normalize!(v)
 
         @test norm(v) ≈ 1.0
-        @test v'⋆v isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,RadialDifferences{Float64,Int}}
+        # @test v'⋆v isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,RadialDifferences{Float64,Int}}
         @test v'v ≈ 1.0
 
         w = B*rand(T, size(B,2))
         normalize!(w)
 
         @test norm(w) ≈ 1.0
-        @test w'⋆w isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,FiniteDifferences{Float64,Int}}
+        # @test w'⋆w isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,FiniteDifferences{Float64,Int}}
         @test w'w ≈ 1.0
     end
 end
@@ -98,8 +98,8 @@ end
 
     y = R*rand(ComplexF64, size(R,2))
     y² = y .* y
-    @test all(isreal.(y².mul.factors[2]))
-    @test all(y².mul.factors[2] .== abs2.(y.mul.factors[2]))
+    @test all(isreal.(y².applied.args[2]))
+    @test all(y².applied.args[2] .== abs2.(y.applied.args[2]))
 
     @testset "Lazy densities" begin
         uv = u .⋆ v
@@ -109,8 +109,8 @@ end
         copyto!(w′, uv)
         @test norm(χ'w′ - fw.(r)) == 0
 
-        uu = R*repeat(u.mul.factors[2],1,2)
-        vv = R*repeat(v.mul.factors[2],1,2)
+        uu = R*repeat(u.applied.args[2],1,2)
+        vv = R*repeat(v.applied.args[2],1,2)
         uuvv = uu .⋆ vv
         ww′ = similar(uu)
         copyto!(ww′, uuvv)
@@ -121,8 +121,8 @@ end
         @test yy isa FDDensity
         wy = similar(y)
         copyto!(wy, yy)
-        @test all(isreal.(wy.mul.factors[2]))
-        @test all(wy.mul.factors[2] .== abs2.(y.mul.factors[2]))
+        @test all(isreal.(wy.applied.args[2]))
+        @test all(wy.applied.args[2] .== abs2.(y.applied.args[2]))
     end
 end
 

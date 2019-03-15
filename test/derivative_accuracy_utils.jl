@@ -71,7 +71,7 @@ end
 
 function norm_rot!(v)
     normalize!(v)
-    vc = v.mul.factors[2]
+    vc = v.applied.args[2]
     vc[:] *= sign(vc[1])
     v
 end
@@ -115,6 +115,8 @@ end
 
 function test_fd_particle_in_a_box(::Type{B}, N, L, nev; kwargs...) where {B<:AbstractQuasiMatrix}
     R = B(1:N, L/(N+1))
+    display(R)
+    println()
 
     Tm = get_kinetic_operator(R)
     λ,ϕ = diagonalize_fd_hamiltonian(Tm, R, nev, 0.0; kwargs...)
@@ -131,7 +133,7 @@ end
 
 function test_singular_fd_scheme(::Type{B}, N, rₘₐₓ, Z, ℓ, nev; kwargs...) where {B<:AbstractQuasiMatrix}
     R = if B == RadialDifferences
-        ρ = rₘₐₓ/(N-0.5)
+        ρ = rₘₐₓ/(N+0.5)
         RadialDifferences(N, ρ, Z)
     else
         ρ = rₘₐₓ/(N+1)

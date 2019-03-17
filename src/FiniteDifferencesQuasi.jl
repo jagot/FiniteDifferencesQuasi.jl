@@ -359,7 +359,7 @@ const FirstOrSecondDerivative{Basis} = Union{FirstDerivative{Basis},SecondDeriva
 
 # ** Materialization
 
-function copyto!(dest::Tridiagonal{T}, M::FirstDerivative) where T
+function copyto!(dest::Tridiagonal{T}, M::FirstDerivative{<:AbstractFiniteDifferences}) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
 
     B = last(M.args)
@@ -383,7 +383,7 @@ function similar(M::FirstDerivative, ::Type{T}) where T
     Tridiagonal(Vector{T}(undef, n-1), Vector{T}(undef, n), Vector{T}(undef, n-1))
 end
 
-function copyto!(dest::SymTridiagonal{T}, M::SecondDerivative) where T
+function copyto!(dest::SymTridiagonal{T}, M::SecondDerivative{<:AbstractFiniteDifferences}) where T
     axes(dest) == axes(M) || throw(DimensionMismatch("axes must be same"))
 
     B = last(M.args)

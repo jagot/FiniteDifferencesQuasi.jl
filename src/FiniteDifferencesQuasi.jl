@@ -51,6 +51,14 @@ const FDMatrixElement{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix,V<:Abstra
 const FDInnerProduct{T,U,B<:AbstractFiniteDifferences{U},V<:AbstractVector{T}} =
     Mul{<:Any, <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},<:B,<:V}}
 
+const LazyFDInnerProduct{FD<:AbstractFiniteDifferences} = Mul{<:Any,<:Tuple{
+    <:Mul{<:Any, <:Tuple{
+        <:Adjoint{<:Any,<:AbstractVector},
+        <:QuasiAdjoint{<:Any,<:FD}}},
+    <:Mul{<:Any, <:Tuple{
+        <:FD,
+        <:AbstractVector}}}}
+
 # * Mass matrix
 function materialize(M::Mul{<:Any,<:Tuple{<:QuasiAdjoint{<:Any,<:FD},<:FD}}) where {T,FD<:AbstractFiniteDifferences{T}}
     Ac, B = M.args
@@ -60,23 +68,40 @@ function materialize(M::Mul{<:Any,<:Tuple{<:QuasiAdjoint{<:Any,<:FD},<:FD}}) whe
     Diagonal(ones(T, size(A,2)))
 end
 
-# * Inner products
+# * Norms
 
-function LinearAlgebra.norm(v::FDVecOrMat, p::Real=2)
-    B,c = v.applied.args
+_norm(B::AbstractFiniteDifferences, c::AbstractArray, p::Real=2) =
     norm(c, p)*(step(B)^(inv(p)))
-end
+
+LinearAlgebra.norm(v::FDVecOrMat, p::Real=2) = _norm(v.applied.args..., p)
+LinearAlgebra.norm(v::Mul{<:Any, <:Tuple{<:AbstractFiniteDifferences, <:AbstractArray}},
+                   p::Real=2) = _norm(v.args..., p)
 
 function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
     v.applied.args[2][:] /= norm(v,p)
     v
 end
 
-function LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD,V}) where {T,U,FD<:AbstractFiniteDifferences{T},V}
-    a,B′,B,b = inner_product.args
-    axes(B′.parent) == axes(B) ||
-        throw(ArgumentError("Incompatible axes"))
+function LinearAlgebra.normalize!(v::Mul{<:Any, <:Tuple{<:AbstractFiniteDifferences, <:AbstractArray}},
+                                  p::Real=2)
+    v.args[2][:] /= norm(v,p)
+    v
+end
+
+# * Inner products
+
+function _inner_product(a::Adjoint{<:Any,<:AbstractVector}, A::QuasiAdjoint{<:Any,<:FD},
+                        B::FD, b::AbstractVector) where {FD<:AbstractFiniteDifferences}
+    axes(A.parent) == axes(B) || throw(ArgumentError("Incompatible axes"))
     a*b*step(B)
+end
+
+LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD,V}) where {T,U,FD<:AbstractFiniteDifferences{T},V} =
+    _inner_product(inner_product.args...)
+
+function LazyArrays.materialize(inner_product::LazyFDInnerProduct{FD}) where {FD<:AbstractFiniteDifferences}
+    aA,Bb = inner_product.args
+    _inner_product(aA.args..., Bb.args...)
 end
 
 # * Various finite differences

@@ -22,23 +22,23 @@ end
     rₘₐₓ = 300
     ρ = rand()
     N = ceil(Int, rₘₐₓ/ρ + 1/2)
-    R = RadialDifferences(N, ρ)
-    B = FiniteDifferences(N, 1.0)
 
-    for T in [Float64,ComplexF64]
-        v = R*rand(T, size(R,2))
-        normalize!(v)
+    for B in [RadialDifferences(N, ρ), FiniteDifferences(N, 1.0)]
+        for T in [Float64,ComplexF64]
+            vv = rand(T, size(B,2))
+            v = B*vv
+            lv = B ⋆ vv
+            normalize!(v)
 
-        @test norm(v) ≈ 1.0
-        # @test v'⋆v isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,RadialDifferences{Float64,Int}}
-        @test v'v ≈ 1.0
+            @test norm(v) ≈ 1.0
+            # @test v'⋆v isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,RadialDifferences{Float64,Int}}
+            @test v'v ≈ 1.0
 
-        w = B*rand(T, size(B,2))
-        normalize!(w)
+            lazyip = lv' ⋆ lv
 
-        @test norm(w) ≈ 1.0
-        # @test w'⋆w isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,FiniteDifferences{Float64,Int}}
-        @test w'w ≈ 1.0
+            @test lazyip isa FiniteDifferencesQuasi.LazyFDInnerProduct
+            @test materialize(lazyip) ≈ 1.0
+        end
     end
 end
 

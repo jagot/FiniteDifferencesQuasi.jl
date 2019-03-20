@@ -466,6 +466,11 @@ materialize(M::FirstOrSecondDerivative{NumerovFiniteDifferences{T}}) where T =
 # * Projections
 
 dot(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = f.(locs(B))
+# Vandermonde interpolation for finite differences is equivalent to
+# evaluating the function on the grid points, since the basis
+# functions are orthogonal and there is no overlap between adjacent
+# basis functions.
+Base.:(\)(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = dot(B, f)
 
 # * Densities
 

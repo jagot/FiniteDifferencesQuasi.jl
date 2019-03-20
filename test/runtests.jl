@@ -74,10 +74,14 @@ end
 
     fu = r -> r^2*exp(-r)
     u = R*dot(R, fu)
+    u′ = R*(R\fu)
     @test norm(χ'u - fu.(r)) == 0
+    @test norm(χ'u′ - fu.(r)) == 0
     fv = r -> r^6*exp(-r)
     v = R*dot(R, fv)
+    v′ = R*(R\fv)
     @test norm(χ'v - fv.(r)) == 0
+    @test norm(χ'v′ - fv.(r)) == 0
 end
 
 @testset "Densities" begin

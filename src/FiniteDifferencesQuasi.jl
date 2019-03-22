@@ -4,7 +4,7 @@ import Base: eltype, axes, size, ==, getindex, checkbounds, copyto!, similar, sh
 import Base.Broadcast: materialize
 
 using ContinuumArrays
-import ContinuumArrays: ℵ₁, Derivative, Inclusion
+import ContinuumArrays: Basis, ℵ₁, Derivative, Inclusion
 import ContinuumArrays.QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray
 
 using IntervalSets
@@ -17,7 +17,7 @@ import LinearAlgebra: Matrix, dot
 
 using Printf
 
-abstract type AbstractFiniteDifferences{T,I<:Integer} <: AbstractQuasiMatrix{T} end
+abstract type AbstractFiniteDifferences{T,I<:Integer} <: Basis{T} end
 
 eltype(::AbstractFiniteDifferences{T}) where T = T
 

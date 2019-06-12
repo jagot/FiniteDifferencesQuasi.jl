@@ -45,7 +45,7 @@ end
             normalize!(v)
 
             @test norm(v) ≈ 1.0
-            # @test v'⋆v isa FiniteDifferencesQuasi.FDInnerProduct{T,Float64,RadialDifferences{Float64,Int}}
+            @test applied(*, v'.applied.args..., v.applied.args...) isa FiniteDifferencesQuasi.FDInnerProduct # {T,Float64,RadialDifferences{Float64,Int}}
             @test v'v ≈ 1.0
 
             lazyip = lv' ⋆ lv

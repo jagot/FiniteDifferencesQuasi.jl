@@ -125,7 +125,7 @@ function _inner_product(a::Adjoint{<:Any,<:AbstractVector}, A::QuasiAdjoint{<:An
     a*b*step(B)
 end
 
-LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD,V}) where {T,U,FD<:AbstractFiniteDifferences{T},V} =
+LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD}) where {T,U,FD<:AbstractFiniteDifferences{U}} =
     _inner_product(inner_product.args...)
 
 function LazyArrays.materialize(inner_product::LazyFDInnerProduct{FD}) where {FD<:AbstractFiniteDifferences}

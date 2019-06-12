@@ -77,8 +77,8 @@ const FDMatrixElement{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix,V<:Abstra
                                     <:B,<:M,<:QuasiAdjoint{<:Any,<:B},
                                     <:B,<:V}}}
 
-const FDInnerProduct{T,U,B<:AbstractFiniteDifferences{U},V<:AbstractVector{T}} =
-    Mul{<:Any, <:Tuple{<:Adjoint{<:Any,<:V},<:QuasiAdjoint{<:Any,<:B},<:B,<:V}}
+const FDInnerProduct{T,U,B<:AbstractFiniteDifferences{U},V1<:AbstractVector{T},V2<:AbstractVector{T}} =
+    Mul{<:Any, <:Tuple{<:Adjoint{<:Any,<:V1},<:QuasiAdjoint{<:Any,<:B},<:B,<:V2}}
 
 const LazyFDInnerProduct{FD<:AbstractFiniteDifferences} = Mul{<:Any,<:Tuple{
     <:Mul{<:Any, <:Tuple{

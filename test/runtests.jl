@@ -5,9 +5,23 @@ using ContinuumArrays
 import ContinuumArrays: ℵ₁, materialize
 import ContinuumArrays.QuasiArrays: AbstractQuasiArray,  AbstractQuasiMatrix, MulQuasiArray
 using LinearAlgebra
+using SparseArrays
 using LazyArrays
 import LazyArrays: ⋆
 using Test
+
+@testset "Basis functions" begin
+    rₘₐₓ = 10
+    ρ = rand()
+    N = ceil(Int, rₘₐₓ/ρ + 1/2)
+
+    for B in [RadialDifferences(N, ρ), FiniteDifferences(N, 1.0)]
+        x = locs(B)
+        χ = B[x, :]
+        @test χ isa AbstractSparseMatrix
+        @test χ ≈ Diagonal(ones(N))
+    end
+end
 
 @testset "Scalar operators" begin
     B = FiniteDifferences(5,1.0)

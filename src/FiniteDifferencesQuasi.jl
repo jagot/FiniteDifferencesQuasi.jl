@@ -14,6 +14,7 @@ import LazyArrays: ⋆, Mul2
 
 using LinearAlgebra
 import LinearAlgebra: Matrix, dot
+using SparseArrays
 
 using Printf
 
@@ -26,12 +27,40 @@ size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
 
 ==(A::AbstractFiniteDifferences,B::AbstractFiniteDifferences) = locs(A) == locs(B)
 
-function getindex(B::AbstractFiniteDifferences{T}, x::Real, i::Integer) where T
-    li = locs(B)[i]
-    δx = step(B)
-    x = clamp((x-li)/step(B), -one(T), one(T))
-    one(T) - abs(x)
+tent(x, x₀::T, δx::T) where T =
+    one(T) - abs(clamp((x-x₀)/δx, -one(T), one(T)))
+
+getindex(B::AbstractFiniteDifferences, x::Real, i::Integer) =
+    tent(x, locs(B)[i], step(B))
+
+"""
+    within_interval(x, interval)
+
+Return the indices of the elements of `x` that lie within the given
+closed `interval`.
+"""
+function within_interval(x::AbstractRange, interval::ClosedInterval)
+    a = leftendpoint(interval)
+    b = rightendpoint(interval)
+    δx = step(x)
+    max(ceil(Int, (a-x[1])/δx),1):min(floor(Int, (b-x[1])/δx)+1,length(x))
 end
+
+function getindex(B::AbstractFiniteDifferences{T}, x::AbstractRange, sel::AbstractVector) where T
+    l = locs(B)
+    δx = step(B)
+    χ = spzeros(T, length(x), length(sel))
+    for j in sel
+        x₀ = l[j]
+        for i ∈ within_interval(x, x₀ - δx..x₀ + δx)
+            χ[i,j] = tent(x[i], x₀, δx)
+        end
+    end
+    χ
+end
+
+getindex(B::AbstractFiniteDifferences{T}, x::AbstractRange, ::Colon) where T =
+    getindex(B, x, axes(B,2))
 
 # * Types
 

@@ -133,6 +133,31 @@ function LazyArrays.materialize(inner_product::LazyFDInnerProduct{FD}) where {FD
     _inner_product(aA.args..., Bb.args...)
 end
 
+function LazyArrays.materialize(s::Mul{<:Any, <:Tuple{
+                <:Mul{<:Any, <:Tuple{
+                    <:Adjoint{<:Any,<:AbstractVector},
+                    <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
+                <:Mul{<:Any, <:Tuple{
+                    <:FD,
+                    <:Diagonal,
+                    <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
+                <:Mul{<:Any, <:Tuple{
+                    <:FD,
+                    <:AbstractVector}}}}) where {FD<:AbstractFiniteDifferences}
+    a,o,b = s.args
+    axes(a.args[2].parent) == axes(o.args[1]) &&
+        axes(o.args[3].parent) == axes(b.args[1]) ||
+        throw(ArgumentError("Incompatible axes"))
+    av = first(a.args)
+    ov = o.args[2].diag
+    bv = last(b.args)
+    v = zero(promote_type(eltype(av),eltype(ov),eltype(bv)))
+    @inbounds for i in eachindex(bv)
+        v += av[i]*ov[i]*bv[i]
+    end
+    v*step(first(b.args))
+end
+
 # * Various finite differences
 # ** Cartesian finite differences
 struct FiniteDifferences{T,I} <: AbstractFiniteDifferences{T,I}

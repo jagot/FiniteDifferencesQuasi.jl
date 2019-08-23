@@ -4,13 +4,14 @@ import Base: eltype, axes, size, ==, getindex, checkbounds, copyto!, similar, sh
 import Base.Broadcast: materialize
 
 using ContinuumArrays
-import ContinuumArrays: Basis, ℵ₁, Derivative, Inclusion
-import ContinuumArrays.QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray
+import ContinuumArrays: Basis, ℵ₁, Derivative, Inclusion, @simplify
+
+using QuasiArrays
+import QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray
 
 using IntervalSets
 
 using LazyArrays
-import LazyArrays: ⋆, Mul2
 
 using LinearAlgebra
 import LinearAlgebra: Matrix, dot
@@ -64,12 +65,12 @@ getindex(B::AbstractFiniteDifferences{T}, x::AbstractRange, ::Colon) where T =
 
 # * Types
 
-const FDArray{T,N,B<:AbstractFiniteDifferences} = MulQuasiArray{T,N,<:Mul{<:Any,<:Tuple{<:B,<:AbstractArray{T,N}}}}
+const FDArray{T,N,B<:AbstractFiniteDifferences} = MulQuasiArray{T,N,<:Tuple{<:B,<:AbstractArray{T,N}}}
 const FDVector{T,B<:AbstractFiniteDifferences} = FDArray{T,1,B}
 const FDMatrix{T,B<:AbstractFiniteDifferences} = FDArray{T,2,B}
 const FDVecOrMat{T,B<:AbstractFiniteDifferences} = Union{FDVector{T,B},FDMatrix{T,B}}
 
-const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Mul{<:Any,<:Tuple{<:B,<:M,<:QuasiAdjoint{<:Any,<:B}}}}
+const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Tuple{<:B,<:M,<:QuasiAdjoint{<:Any,<:B}}}
 
 const FDMatrixElement{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix,V<:AbstractVector} =
     MulQuasiArray{T,0,<:Mul{<:Any,
@@ -89,12 +90,10 @@ const LazyFDInnerProduct{FD<:AbstractFiniteDifferences} = Mul{<:Any,<:Tuple{
         <:AbstractVector}}}}
 
 # * Mass matrix
-function materialize(M::Mul{<:Any,<:Tuple{<:QuasiAdjoint{<:Any,<:FD},<:FD}}) where {T,FD<:AbstractFiniteDifferences{T}}
-    Ac, B = M.args
-    axes(Ac,2) == axes(B,1) || throw(DimensionMismatch("axes must be same"))
+@simplify function *(Ac::QuasiAdjoint{<:Any,<:AbstractFiniteDifferences}, B::AbstractFiniteDifferences)
     A = parent(Ac)
     A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
-    Diagonal(ones(T, size(A,2)))
+    Diagonal(ones(eltype(B), size(A,2)))
 end
 
 # * Norms

@@ -7,7 +7,9 @@ using ContinuumArrays
 import ContinuumArrays: Basis, ℵ₁, Derivative, Inclusion, @simplify
 
 using QuasiArrays
-import QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray, PInvQuasiMatrix, InvQuasiMatrix
+import QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray,
+    PInvQuasiMatrix, InvQuasiMatrix, QuasiDiagonal,
+    BroadcastQuasiArray
 
 using IntervalSets
 
@@ -104,6 +106,7 @@ const LazyFDInnerProduct{FD<:AbstractFiniteDifferences} = Mul{<:Any,<:Tuple{
         <:AbstractVector}}}}
 
 # * Mass matrix
+
 @simplify function *(Ac::QuasiAdjoint{<:Any,<:AbstractFiniteDifferences}, B::AbstractFiniteDifferences)
     A = parent(Ac)
     A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
@@ -175,16 +178,16 @@ function LazyArrays.materialize(inner_product::LazyFDInnerProduct{FD}) where {FD
 end
 
 function LazyArrays.materialize(s::Mul{<:Any, <:Tuple{
-                <:Mul{<:Any, <:Tuple{
-                    <:Adjoint{<:Any,<:AbstractVector},
-                    <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
-                <:Mul{<:Any, <:Tuple{
-                    <:FD,
-                    <:Diagonal,
-                    <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
-                <:Mul{<:Any, <:Tuple{
-                    <:FD,
-                    <:AbstractVector}}}}) where {FD<:AbstractFiniteDifferences}
+    <:Mul{<:Any, <:Tuple{
+        <:Adjoint{<:Any,<:AbstractVector},
+        <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
+    <:Mul{<:Any, <:Tuple{
+        <:FD,
+        <:Diagonal,
+        <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
+    <:Mul{<:Any, <:Tuple{
+        <:FD,
+        <:AbstractVector}}}}) where {FD<:AbstractFiniteDifferences}
     a,o,b = s.args
     axes(a.args[2].parent) == axes(o.args[1]) &&
         axes(o.args[3].parent) == axes(b.args[1]) ||
@@ -231,7 +234,7 @@ struct RadialDifferences{T,I} <: AbstractFiniteDifferences{T,I}
 
     RadialDifferences(n::I, ρ::T, Z=one(T),
                       δβ₁=Z*ρ/8 * (one(T) + Z*ρ)) where {I<:Integer, T} =
-        new{T,I}(Base.OneTo(n), ρ, convert(T,Z), convert(T,δβ₁))
+                          new{T,I}(Base.OneTo(n), ρ, convert(T,Z), convert(T,δβ₁))
 end
 
 """
@@ -428,8 +431,14 @@ end
 
 # * Scalar operators
 
-Matrix(f::Function, B::AbstractFiniteDifferences{T}) where T = Diagonal(f.(locs(B)))
-Matrix(::UniformScaling, B::AbstractFiniteDifferences{T}) where T = Diagonal(ones(T, size(B,2)))
+@simplify function *(Ac::QuasiAdjoint{<:Any,<:AbstractFiniteDifferences},
+                     D::QuasiDiagonal,
+                     B::AbstractFiniteDifferences)
+    A = parent(Ac)
+    A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
+
+    Diagonal(getindex.(Ref(D.diag), locs(B)))
+end
 
 # * Derivatives
 
@@ -560,12 +569,15 @@ materialize(M::FirstOrSecondDerivative{NumerovFiniteDifferences{T}}) where T =
 
 # * Projections
 
-dot(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = f.(locs(B))
 # Vandermonde interpolation for finite differences is equivalent to
 # evaluating the function on the grid points, since the basis
-# functions are orthogonal and there is no overlap between adjacent
-# basis functions.
-Base.:(\)(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = dot(B, f)
+# functions are orthogonal (in the sense of a quadrature) and there is
+# no overlap between adjacent basis functions.
+function Base.:(\ )(B::FD, f::BroadcastQuasiArray) where {T,FD<:AbstractFiniteDifferences{T}}
+    axes(f,1) == axes(B,1) ||
+        throw(DimensionMismatch("Function on $(axes(f,1).domain) cannot be interpolated over basis on $(axes(B,1).domain)"))
+    getindex.(Ref(f), locs(B))
+end
 
 # * Densities
 
@@ -624,6 +636,7 @@ end
 
 # * Exports
 
-export AbstractFiniteDifferences, FiniteDifferences, RadialDifferences, NumerovFiniteDifferences, Derivative, dot
+export AbstractFiniteDifferences, FiniteDifferences, RadialDifferences, NumerovFiniteDifferences,
+    Derivative, dot, QuasiDiagonal
 
 end # module

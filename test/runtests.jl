@@ -1,6 +1,7 @@
 using FiniteDifferencesQuasi
 import FiniteDifferencesQuasi: FirstDerivative, SecondDerivative, locs, FDDensity
 using IntervalSets
+using QuasiArrays
 using ContinuumArrays
 import ContinuumArrays: ℵ₁, materialize
 import ContinuumArrays.QuasiArrays: AbstractQuasiArray,  AbstractQuasiMatrix, MulQuasiArray
@@ -53,11 +54,15 @@ end
 
 @testset "Scalar operators" begin
     B = FiniteDifferences(5,1.0)
-    x² = Matrix(x -> x^2, B)
+    x = axes(B,1)
+    x² = B'QuasiDiagonal(x.^2)*B
     @test x² isa Diagonal
 
     v = ones(5)
     @test x²*v == locs(B).^2
+
+    y = Inclusion(0.0..5.0)
+    @test_throws DimensionMismatch B'QuasiDiagonal(y.^2)*B
 end
 
 @testset "Inner products" begin
@@ -111,40 +116,44 @@ end
     @test all(diag(T,-1) .== 1)
 end
 
-@testset "Projections" begin
+@testset "Function interpolation" begin
     R = FiniteDifferences(20,1.0)
     R⁻¹ = pinv(R)
-    r = locs(R)
-    χ = R[r,:]
+    r̃ = locs(R)
+    χ = R[r̃,:]
+
+    r = axes(R,1)
+
+    y = Inclusion(0.0..5.0)
+    @test_throws DimensionMismatch R \ y.^2
 
     fu = r -> r^2*exp(-r)
-    u = R*dot(R, fu)
-    u′ = R*(R\fu)
-    @test norm(χ * (R⁻¹*u) - fu.(r)) == 0
-    @test norm(χ * (R⁻¹*u′) - fu.(r)) == 0
+    u = R*(R\fu.(r))
+    @test norm(χ * (R⁻¹*u) - fu.(r̃)) == 0
+
     fv = r -> r^6*exp(-r)
-    v = R*dot(R, fv)
-    v′ = R*(R\fv)
-    @test norm(χ * (R⁻¹*v) - fv.(r)) == 0
-    @test norm(χ * (R⁻¹*v′) - fv.(r)) == 0
+    v = R*(R\fv.(r))
+    @test norm(χ * (R⁻¹*v) - fv.(r̃)) == 0
 end
 
 @testset "Densities" begin
     R = FiniteDifferences(20,1.0)
     R⁻¹ = pinv(R)
-    r = locs(R)
-    χ = R[r,:]
+    r̃ = locs(R)
+    χ = R[r̃,:]
+
+    r = axes(R,1)
 
     fu = r -> r^2*exp(-r)
-    u = R*dot(R, fu)
+    u = R*(R\fu.(r))
 
     fv = r -> r^6*exp(-r)
-    v = R*dot(R, fv)
+    v = R*(R\fv.(r))
 
     w = u .* v
     fw = r -> fu(r)*fv(r)
 
-    @test norm(χ * (R⁻¹*w) - fw.(r)) == 0
+    @test norm(χ * (R⁻¹*w) - fw.(r̃)) == 0
 
     y = R*rand(ComplexF64, size(R,2))
     y² = y .* y
@@ -157,7 +166,7 @@ end
 
         w′ = similar(u)
         copyto!(w′, uv)
-        @test norm(χ * (R⁻¹*w′) - fw.(r)) == 0
+        @test norm(χ * (R⁻¹*w′) - fw.(r̃)) == 0
 
         uu = R*repeat(R⁻¹*u,1,2)
         vv = R*repeat(R⁻¹*v,1,2)
@@ -165,7 +174,7 @@ end
         ww′ = similar(uu)
         copyto!(ww′, uuvv)
 
-        @test norm(χ * (R⁻¹*ww′) .- fw.(r)) == 0
+        @test norm(χ * (R⁻¹*ww′) .- fw.(r̃)) == 0
 
         yy = y .⋆ y
         @test yy isa FDDensity
@@ -226,13 +235,14 @@ end
         N = ceil(Int, rₘₐₓ/ρ + 1/2)
 
         R = RadialDifferences(N, ρ)
+        r = axes(R, 1)
 
         D = Derivative(Base.axes(R,1))
         ∇² = R'⋆D'⋆D⋆R
         Tm = materialize(∇²)
         Tm /= -2
 
-        V = Matrix(r -> -1/r, R)
+        V = R'QuasiDiagonal(-inv.(r))*R
 
         H = Tm + V
 
@@ -247,11 +257,11 @@ end
         @test abs_error[1] < 3e-5
         @test all(rel_error .< 1e-3)
 
-        r = locs(R)
+        r̃ = locs(R)
         # Table 2.2 Foot (2005)
-        Rₐ₀ = [2exp.(-r),
-               -(1/2)^1.5 * 2 * (1 .- r/2).*exp.(-r/2), # Why the minus?
-               (1/3)^1.5 * 2 * (1 .- 2r/3 .+ 2/3*(r/3).^2).*exp.(-r/3)]
+        Rₐ₀ = [2exp.(-r̃),
+               -(1/2)^1.5 * 2 * (1 .- r̃/2).*exp.(-r̃/2), # Why the minus?
+               (1/3)^1.5 * 2 * (1 .- 2r̃/3 .+ 2/3*(r̃/3).^2).*exp.(-r̃/3)]
         expected_errors = [1e-3,1e-3,2e-3]
 
         for i = 1:3
@@ -259,8 +269,8 @@ end
             N = norm(v)*√ρ
             # The sign from the diagonalization is arbitrary; make max lobe positive
             N *= sign(v[argmax(abs.(v))])
-            abs_error = v/N .- r.*Rₐ₀[i]
-            @test norm(abs_error)/abs(1e-10+norm(r.*Rₐ₀[i])) < expected_errors[i]
+            abs_error = v/N .- r̃.*Rₐ₀[i]
+            @test norm(abs_error)/abs(1e-10+norm(r̃.*Rₐ₀[i])) < expected_errors[i]
         end
     end
 

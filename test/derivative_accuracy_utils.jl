@@ -71,7 +71,7 @@ end
 
 function norm_rot!(v)
     normalize!(v)
-    vc = v.applied.args[2]
+    vc = v.args[2]
     vc[:] *= sign(vc[1])
     v
 end

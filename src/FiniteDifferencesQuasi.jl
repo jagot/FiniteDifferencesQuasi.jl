@@ -7,7 +7,7 @@ using ContinuumArrays
 import ContinuumArrays: Basis, ℵ₁, Derivative, Inclusion, @simplify
 
 using QuasiArrays
-import QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray
+import QuasiArrays: AbstractQuasiMatrix, QuasiAdjoint, MulQuasiArray, PInvQuasiMatrix, InvQuasiMatrix
 
 using IntervalSets
 
@@ -70,7 +70,21 @@ const FDVector{T,B<:AbstractFiniteDifferences} = FDArray{T,1,B}
 const FDMatrix{T,B<:AbstractFiniteDifferences} = FDArray{T,2,B}
 const FDVecOrMat{T,B<:AbstractFiniteDifferences} = Union{FDVector{T,B},FDMatrix{T,B}}
 
-const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Tuple{<:B,<:M,<:QuasiAdjoint{<:Any,<:B}}}
+const AdjointFDArray{T,N,B<:AbstractFiniteDifferences} = MulQuasiArray{T,<:Any,<:Tuple{<:Adjoint{T,<:AbstractArray{T,N}},
+                                                                                       <:QuasiAdjoint{T,<:B}}}
+const AdjointFDVector{T,B<:AbstractFiniteDifferences} = AdjointFDArray{T,1,B}
+const AdjointFDMatrix{T,B<:AbstractFiniteDifferences} = AdjointFDArray{T,2,B}
+const AdjointFDVecOrMat{T,B<:AbstractFiniteDifferences} = Union{AdjointFDVector{T,B},AdjointFDMatrix{T,B}}
+
+# This is an operator on the form O = B*M*B⁻¹, where M is a matrix
+# acting on the expansion coefficients. When applied to e.g. a
+# FDVector, v = B*c, we get O*v = B*M*B⁻¹*B*c = B*M*c. Acting on an
+# AdjointFDVector is also trivial: v'O' = (B*c)'*(B*M*B⁻¹)' =
+# B'c'M'. It is less clear if it is possible to form Hermitian
+# operator that does _not_ need be transposed before application to
+# adjoint vectors.
+const FDOperator{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix} = MulQuasiArray{T,2,<:Tuple{<:B,<:M,
+                                                                                               <:PInvQuasiMatrix{<:Any,<:Tuple{<:B}}}}
 
 const FDMatrixElement{T,B<:AbstractFiniteDifferences,M<:AbstractMatrix,V<:AbstractVector} =
     MulQuasiArray{T,0,<:Mul{<:Any,
@@ -93,7 +107,35 @@ const LazyFDInnerProduct{FD<:AbstractFiniteDifferences} = Mul{<:Any,<:Tuple{
 @simplify function *(Ac::QuasiAdjoint{<:Any,<:AbstractFiniteDifferences}, B::AbstractFiniteDifferences)
     A = parent(Ac)
     A == B || throw(ArgumentError("Cannot multiply functions on different grids"))
-    Diagonal(ones(eltype(B), size(A,2)))
+    I*step(B)
+end
+
+# * Basis inverses
+
+@simplify function *(A⁻¹::PInvQuasiMatrix{<:Any,<:Tuple{<:AbstractFiniteDifferences}}, B::AbstractFiniteDifferences)
+    A = parent(A⁻¹)
+    A == B || throw(ArgumentError("Cannot multiply basis with inverse of other basis"))
+    one(eltype(A))*I
+end
+
+@simplify function *(A::AbstractFiniteDifferences, B⁻¹::PInvQuasiMatrix{<:Any,<:Tuple{<:AbstractFiniteDifferences}})
+    B = parent(B⁻¹)
+    A == B || throw(ArgumentError("Cannot multiply basis with inverse of other basis"))
+    one(eltype(A))*I
+end
+
+@simplify function *(A⁻¹::PInvQuasiMatrix{<:Any,<:Tuple{<:AbstractFiniteDifferences}}, v::FDArray)
+    A = parent(A⁻¹)
+    B,c = v.args
+    A == B || throw(ArgumentError("Cannot multiply basis with inverse of other basis"))
+    c
+end
+
+@simplify function *(v::AdjointFDArray, B⁻¹::PInvQuasiMatrix{<:Any,<:Tuple{<:AbstractFiniteDifferences}})
+    c,Ac = v.args
+    B = parent(B⁻¹)
+    parent(Ac) == B || throw(ArgumentError("Cannot multiply basis with inverse of other basis"))
+    c
 end
 
 # * Norms
@@ -101,12 +143,12 @@ end
 _norm(B::AbstractFiniteDifferences, c::AbstractArray, p::Real=2) =
     norm(c, p)*(step(B)^(inv(p)))
 
-LinearAlgebra.norm(v::FDVecOrMat, p::Real=2) = _norm(v.applied.args..., p)
+LinearAlgebra.norm(v::FDVecOrMat, p::Real=2) = _norm(v.args..., p)
 LinearAlgebra.norm(v::Mul{<:Any, <:Tuple{<:AbstractFiniteDifferences, <:AbstractArray}},
                    p::Real=2) = _norm(v.args..., p)
 
 function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
-    v.applied.args[2][:] /= norm(v,p)
+    v.args[2][:] /= norm(v,p)
     v
 end
 
@@ -529,8 +571,8 @@ Base.:(\)(B::FD, f::Function) where {T,FD<:AbstractFiniteDifferences{T}} = dot(B
 
 function Base.Broadcast.broadcasted(::typeof(*), a::M, b::M) where {T,N,FD<:AbstractFiniteDifferences,M<:FDArray{T,N,FD}}
     axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
-    A,ca = a.applied.args
-    B,cb = b.applied.args
+    A,ca = a.args
+    B,cb = b.args
     A == B || throw(DimensionMismatch("Incompatible bases"))
     # We want the first MulQuasiArray to be conjugated, if complex
     c = conj.(ca) .* cb
@@ -560,11 +602,11 @@ end
 
 function Base.Broadcast.broadcasted(::typeof(⋆), a::V₁, b::V₂) where {T,B<:AbstractFiniteDifferences,V₁<:FDVecOrMat{T,B},V₂<:FDVecOrMat{T,B}}
     # axes(a) == axes(b) || throw(DimensionMismatch("Incompatible axes"))
-    _FDDensity(a.applied.args..., b.applied.args...)
+    _FDDensity(a.args..., b.args...)
 end
 
 function Base.copyto!(ρ::FDVecOrMat{T,R}, ld::FDDensity{T,R}) where {T,R}
-    copyto!(ρ.applied.args[2], ld, ρ.applied.args[1])
+    copyto!(ρ.args[2], ld, ρ.args[1])
     ρ
 end
 

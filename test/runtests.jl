@@ -23,6 +23,34 @@ using Test
     end
 end
 
+@testset "Mass matrices and inverses" begin
+    R = FiniteDifferences(20,0.2)
+    @testset "Mass matrix" begin
+        @test R'R == step(R)*I
+    end
+    @testset "Inverses" begin
+        R⁻¹ = pinv(R)
+        @test R⁻¹*R == I
+        @test R*R⁻¹ == I
+
+        cu = rand(size(R,2))
+        cv = rand(size(R,2))
+        cuv = [cu cv]
+
+        u = R*cu
+        v = R*cv
+        uv = R*cuv
+
+        @test R⁻¹*u === cu
+        @test R⁻¹*v === cv
+        @test R⁻¹*uv === cuv
+
+        ut = u'
+        # Fails with: ERROR: MethodError: no method matching axes(::UniformScaling{Float64}, ::Int64)
+        # @test ut*R⁻¹' === ut.args[1]
+    end
+end
+
 @testset "Scalar operators" begin
     B = FiniteDifferences(5,1.0)
     x² = Matrix(x -> x^2, B)
@@ -38,6 +66,7 @@ end
     N = ceil(Int, rₘₐₓ/ρ + 1/2)
 
     for B in [RadialDifferences(N, ρ), FiniteDifferences(N, 1.0)]
+        S = B'B
         for T in [Float64,ComplexF64]
             vv = rand(T, size(B,2))
             v = B*vv
@@ -45,8 +74,9 @@ end
             normalize!(v)
 
             @test norm(v) ≈ 1.0
-            @test applied(*, v'.applied.args..., v.applied.args...) isa FiniteDifferencesQuasi.FDInnerProduct # {T,Float64,RadialDifferences{Float64,Int}}
+            @test applied(*, v'.args..., v.args...) isa FiniteDifferencesQuasi.FDInnerProduct # {T,Float64,RadialDifferences{Float64,Int}}
             @test v'v ≈ 1.0
+            @test vv'S*vv ≈ 1.0
 
             lazyip = lv' ⋆ lv
 
@@ -83,25 +113,27 @@ end
 
 @testset "Projections" begin
     R = FiniteDifferences(20,1.0)
+    R⁻¹ = pinv(R)
     r = locs(R)
-    χ = R*R[r,:]'
+    χ = R[r,:]
 
     fu = r -> r^2*exp(-r)
     u = R*dot(R, fu)
     u′ = R*(R\fu)
-    @test norm(χ'u - fu.(r)) == 0
-    @test norm(χ'u′ - fu.(r)) == 0
+    @test norm(χ * (R⁻¹*u) - fu.(r)) == 0
+    @test norm(χ * (R⁻¹*u′) - fu.(r)) == 0
     fv = r -> r^6*exp(-r)
     v = R*dot(R, fv)
     v′ = R*(R\fv)
-    @test norm(χ'v - fv.(r)) == 0
-    @test norm(χ'v′ - fv.(r)) == 0
+    @test norm(χ * (R⁻¹*v) - fv.(r)) == 0
+    @test norm(χ * (R⁻¹*v′) - fv.(r)) == 0
 end
 
 @testset "Densities" begin
     R = FiniteDifferences(20,1.0)
+    R⁻¹ = pinv(R)
     r = locs(R)
-    χ = R*R[r,:]'
+    χ = R[r,:]
 
     fu = r -> r^2*exp(-r)
     u = R*dot(R, fu)
@@ -112,12 +144,12 @@ end
     w = u .* v
     fw = r -> fu(r)*fv(r)
 
-    @test norm(χ'w - fw.(r)) == 0
+    @test norm(χ * (R⁻¹*w) - fw.(r)) == 0
 
     y = R*rand(ComplexF64, size(R,2))
     y² = y .* y
-    @test all(isreal.(y².applied.args[2]))
-    @test all(y².applied.args[2] .== abs2.(y.applied.args[2]))
+    @test all(isreal.(R⁻¹*y²))
+    @test all(R⁻¹*y² .== abs2.(R⁻¹*y))
 
     @testset "Lazy densities" begin
         uv = u .⋆ v
@@ -125,22 +157,22 @@ end
 
         w′ = similar(u)
         copyto!(w′, uv)
-        @test norm(χ'w′ - fw.(r)) == 0
+        @test norm(χ * (R⁻¹*w′) - fw.(r)) == 0
 
-        uu = R*repeat(u.applied.args[2],1,2)
-        vv = R*repeat(v.applied.args[2],1,2)
+        uu = R*repeat(R⁻¹*u,1,2)
+        vv = R*repeat(R⁻¹*v,1,2)
         uuvv = uu .⋆ vv
         ww′ = similar(uu)
         copyto!(ww′, uuvv)
 
-        @test norm(χ'ww′ .- fw.(r)) == 0
+        @test norm(χ * (R⁻¹*ww′) .- fw.(r)) == 0
 
         yy = y .⋆ y
         @test yy isa FDDensity
         wy = similar(y)
         copyto!(wy, yy)
-        @test all(isreal.(wy.applied.args[2]))
-        @test all(wy.applied.args[2] .== abs2.(y.applied.args[2]))
+        @test all(isreal.(R⁻¹*wy))
+        @test all(R⁻¹*wy .== abs2.(R⁻¹*y))
     end
 end
 

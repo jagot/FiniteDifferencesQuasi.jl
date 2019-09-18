@@ -139,9 +139,7 @@ version = "0.21.0"
 
 [[LazyArrays]]
 deps = ["FillArrays", "LinearAlgebra", "MacroTools", "StaticArrays"]
-git-tree-sha1 = "d1cbf1f2af6277b4e774d1b8162f92cb9db5b419"
-repo-rev = "master"
-repo-url = "https://github.com/JuliaArrays/LazyArrays.jl.git"
+git-tree-sha1 = "631379228b52050c9c925d34db7d60b9073f2989"
 uuid = "5078a376-72f3-5289-bfd5-ec5146d43c02"
 version = "0.11.0"
 

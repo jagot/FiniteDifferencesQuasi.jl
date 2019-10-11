@@ -16,17 +16,17 @@ function test_fd_derivatives(a, b, N, ::Type{B}, f::Function, g::Function, h::Fu
     ∇ = R'D*R
     ∇² = R'D'D*R
 
-    r = FiniteDifferencesQuasi.locs(R)
+    r = axes(R,1)
 
-    fv = f.(r)
+    fv = R \ f.(r)
     gv = similar(fv)
     hv = similar(fv)
 
     mul!(gv, ∇, fv)
     mul!(hv, ∇², fv)
 
-    δg = gv-g.(r)
-    δh = hv-h.(r)
+    δg = gv - R \ g.(r)
+    δh = hv - R \ h.(r)
 
     r,fv,gv,hv,δg,δh,step(R)
 end
@@ -71,7 +71,7 @@ end
 
 function norm_rot!(v)
     normalize!(v)
-    vc = v.applied.args[2]
+    vc = v.args[2]
     vc[:] *= sign(vc[1])
     v
 end
@@ -121,14 +121,14 @@ function test_fd_particle_in_a_box(::Type{B}, N, L, nev; kwargs...) where {B<:Ab
     Tm = get_kinetic_operator(R)
     λ,ϕ = diagonalize_fd_hamiltonian(Tm, R, nev, 0.0; kwargs...)
 
-    r = FiniteDifferencesQuasi.locs(R)
+    r̃ = FiniteDifferencesQuasi.locs(R)
 
     n = 1:nev
     δλ = λ - n.^2*π^2/(2L^2)
 
     # Could/should also test eigenvectors
 
-    λ,ϕ,r,R,δλ
+    λ,ϕ,r̃,R,δλ
 end
 
 function test_singular_fd_scheme(::Type{B}, N, rₘₐₓ, Z, ℓ, nev; kwargs...) where {B<:AbstractQuasiMatrix}
@@ -142,28 +142,30 @@ function test_singular_fd_scheme(::Type{B}, N, rₘₐₓ, Z, ℓ, nev; kwargs..
     display(R)
     println()
 
+    r = axes(R,1)
+
     n = 1:nev
     λₐ = -inv.(2(n .+ ℓ).^2)
 
-    Tm = get_kinetic_operator(R)
-    V = Matrix(r -> -1/r + ℓ*(ℓ+1)/2r^2, R)
+    Tm = get_kinetic_operator(R) + R'*QuasiDiagonal(ℓ*(ℓ+1)./2r.^2)*R
+    V = R'*QuasiDiagonal(-inv.(r))*R
     H = Tm + V
     λ,ϕ = diagonalize_fd_hamiltonian(H, R, nev, 1.1λₐ[1]; kwargs...)
 
-    r = FiniteDifferencesQuasi.locs(R)
+    r̃ = FiniteDifferencesQuasi.locs(R)
 
     δλ = λ - λₐ
 
     # Could/should also test eigenvectors
 
-    λ,ϕ,r,R,δλ
+    λ,ϕ,r̃,R,δλ
 end
 
 function compute_diagonalization_errors(f::Function, ::Type{B}, Ns, args...; kwargs...) where B
     errors = map(Ns) do N
         println("N = $N")
         t = time()
-        λ,ϕ,r,R,δλ = f(B, N, args...; kwargs...)
+        λ,ϕ,r̃,R,δλ = f(B, N, args...; kwargs...)
         elapsed = time()-t
         vcat(δλ,elapsed)'
     end |> e -> vcat(e...)

@@ -109,8 +109,7 @@ end
 
 function get_kinetic_operator(R::B) where {B<:AbstractQuasiMatrix}
     D = Derivative(Base.axes(R,1))
-    Tm = R'D'D*R
-    Tm /= -2
+    apply(*, R', D', D, R) / -2
 end
 
 function test_fd_particle_in_a_box(::Type{B}, N, L, nev; kwargs...) where {B<:AbstractQuasiMatrix}

@@ -6,10 +6,11 @@ using ContinuumArrays
 import ContinuumArrays: ℵ₁, materialize
 import ContinuumArrays.QuasiArrays: AbstractQuasiArray,  AbstractQuasiMatrix, MulQuasiArray
 using LinearAlgebra
+using BandedMatrices
 using SparseArrays
 using LazyArrays
 import LazyArrays: ⋆
-using Test
+    using Test
 
 @testset "Basis functions" begin
     rₘₐₓ = 10
@@ -21,6 +22,33 @@ using Test
         χ = B[x, :]
         @test χ isa AbstractSparseMatrix
         @test χ ≈ Diagonal(ones(N))
+    end
+
+    @testset "Basis functions in restricted bases" begin
+        N = 100
+        L = 20.0
+        δx = L/(N+1)
+
+        B = FiniteDifferences((1:N) .- div(N,2), δx)
+        xx = axes(B,1)
+        a = xx.domain
+        x = range(a.left, stop=a.right, length=max(N,101))
+        χ = B[x,:]
+        @test χ isa AbstractSparseMatrix
+
+        sell = 1:round(Int, 0.6N)
+        selv = round(Int, 0.4N):N
+
+        Bl = B[:,sell]
+        Bv = B[:,selv]
+
+        χl = Bl[x, :]
+        @test χl isa AbstractSparseMatrix
+        @test χl == χ[:,sell]
+        χv = Bv[x, :]
+        @test χv == χ[:,selv]
+
+        @test Bv[x, 4:8] == χ[:,selv[4:8]]
     end
 end
 
@@ -63,6 +91,50 @@ end
 
     y = Inclusion(0.0..5.0)
     @test_throws DimensionMismatch B'QuasiDiagonal(y.^2)*B
+
+    @testset "Restricted bases" begin
+        N = 10
+        ρ = 1.0
+
+        R = FiniteDifferences(N, ρ)
+        r = axes(R, 1)
+
+        sel = 3:6
+        sel2 = 8:10
+
+        R̃ = R[:, sel]
+        R′ = R[:, sel2]
+
+        x = QuasiDiagonal(r)
+
+        apply_obj = applied(*, R', x, R)
+        @test LazyArrays.ApplyStyle(*, typeof(R'), typeof(x), typeof(R)) ==
+            FiniteDifferencesQuasi.FiniteDifferencesStyle()
+
+        A = apply(*, R', x, R)
+        @test A isa Diagonal
+
+        a = apply(*, R̃', x, R)
+        @test a isa BandedMatrix
+        @test a == Matrix(A)[sel,:]
+        @test bandwidths(a) == (-2,2)
+
+        a = apply(*, R', x, R̃)
+        @test a isa BandedMatrix
+        @test a == Matrix(A)[:,sel]
+        @test bandwidths(a) == (2,-2)
+
+        a = apply(*, R̃', x, R̃)
+        @test a isa Diagonal
+        @test a == Matrix(A)[sel,sel]
+
+        # Non-overlapping restrictions
+        a = apply(*, R̃', x, R′)
+        @test a isa BandedMatrix
+        @test size(a) == (length(sel), length(sel2))
+        @test iszero(a)
+        @test bandwidths(a) == (5,-5)
+    end
 end
 
 @testset "Inner products" begin
@@ -92,28 +164,113 @@ end
 end
 
 @testset "Derivatives" begin
-    B = FiniteDifferences(5,1.0)
-    D = Derivative(axes(B,1))
+    @testset "Normal finite differences" begin
+        B = FiniteDifferences(5,1.0)
+        D = Derivative(axes(B,1))
 
-    ∇ = B'⋆D⋆B
-    ∇² = B'⋆D'⋆D⋆B
+        ∇ = applied(*, B', D, B)
+        ∇² = applied(*, B', D', D, B)
 
-    @test ∇ isa FirstDerivative
-    @test ∇² isa SecondDerivative
+        @test ∇ isa FirstDerivative
+        @test ∇² isa SecondDerivative
 
-    ∂ = materialize(∇)
-    T = materialize(∇²)
+        ∂ = materialize(∇)
+        T = materialize(∇²)
 
-    @test ∂ isa Tridiagonal
-    @test T isa SymTridiagonal
+        @test ∂ isa Tridiagonal
+        @test T isa SymTridiagonal
 
-    @test all(diag(∂) .== 0)
-    @test all(diag(∂,1) .== 0.5)
-    @test all(diag(∂,-1) .== -0.5)
+        @test all(diag(∂) .== 0)
+        @test all(diag(∂,1) .== 0.5)
+        @test all(diag(∂,-1) .== -0.5)
 
-    @test all(diag(T) .== -2)
-    @test all(diag(T,1) .== 1)
-    @test all(diag(T,-1) .== 1)
+        @test all(diag(T) .== -2)
+        @test all(diag(T,1) .== 1)
+        @test all(diag(T,-1) .== 1)
+    end
+
+    @testset "Restricted bases" begin
+        N = 10
+        ρ = 1.0
+
+        R = RadialDifferences(N, ρ)
+        r = axes(R, 1)
+        D = Derivative(r)
+
+        ∇ = apply(*, R', D, R)
+        ∇² = apply(*, R', D', D, R)
+
+        for (sela,selb) in Iterators.product([1:10, 3:6, 8:10, 5:10, 4:5], [1:10, 3:6, 8:10, 5:10, 4:5])
+            Ra = R[:,sela]
+            Rb = R[:,selb]
+            @test LazyArrays.ApplyStyle(*, typeof(Ra'), typeof(D), typeof(Rb)) ==
+                FiniteDifferencesQuasi.FiniteDifferencesStyle()
+
+            ∂ = apply(*, Ra', D, Rb)
+            @test ∂ == Matrix(∇)[sela,selb]
+            if sela == selb
+                @test ∂ isa Tridiagonal
+            else
+                @test ∂ isa BandedMatrix
+                @test length(bandrange(∂)) == 3
+            end
+
+            ∂² = apply(*, Ra', D', D, Rb)
+            @test ∂² == Matrix(∇²)[sela,selb]
+            if sela == selb
+                @test ∂² isa SymTridiagonal
+            else
+                @test ∂² isa BandedMatrix
+                @test length(bandrange(∂²)) == 3
+            end
+        end
+    end
+
+    @testset "Numerov finite differences" begin
+        N = 10
+        ρ = 0.3
+        Z = 1.0
+        @testset "Singular origin=$(singular_origin)" for singular_origin = [true, false]
+            R = NumerovFiniteDifferences(1:N, ρ, singular_origin, Z)
+            r = axes(R, 1)
+            D = Derivative(r)
+
+            λ,δβ₁ = if singular_origin
+                √3 - 2, -Z*ρ*inv(12 - 10*Z*ρ)
+            else
+                0,0
+            end
+
+            ∂ = apply(*, R', D, R)
+            @test ∂ isa FiniteDifferencesQuasi.NumerovDerivative
+
+            @test ∂.Δ isa Tridiagonal
+            @test ∂.Δ[1,1] ≈ λ/2ρ
+            @test all(iszero, ∂.Δ.d[2:end])
+            @test all(∂.Δ.dl .≈ -1/2ρ)
+            @test all(∂.Δ.du .≈ 1/2ρ)
+
+            @test ∂.M isa Tridiagonal
+            @test ∂.M[1,1] ≈ (4+λ)/6
+            @test all(∂.M.d[2:end] .≈ 4/6)
+            @test all(∂.M.dl .≈ 1/6)
+            @test all(∂.M.du .≈ 1/6)
+
+
+            ∂² = apply(*, R', D', D, R)
+            @test ∂ isa FiniteDifferencesQuasi.NumerovDerivative
+
+            @test ∂².Δ isa SymTridiagonal
+            @test ∂².Δ[1,1] ≈ -2*(1+δβ₁)/ρ^2
+            @test all(∂².Δ.dv[2:end] .≈ -2/ρ^2)
+            @test all(∂².Δ.ev .≈ 1/ρ^2)
+
+            @test ∂².M isa SymTridiagonal
+            @test ∂².M[1,1] ≈ -(10-2δβ₁)/6
+            @test all(∂².M.dv[2:end] .≈ -10/6)
+            @test all(∂².M.ev .≈ -1/6)
+        end
+    end
 end
 
 @testset "Function interpolation" begin
@@ -193,19 +350,21 @@ include("derivative_accuracy_utils.jl")
     d = 1.0
     f,g,h,a,b = derivative_test_functions(d)
 
-    for (order,B) in [(2,FiniteDifferences),
-                      (4,NumerovFiniteDifferences)]
+    @testset "kind = $B" for (order,B) in [(2,FiniteDifferences),
+                                           (4,NumerovFiniteDifferences)]
         ϵg,ϵh,pg,ph = compute_derivative_errors(a, b, Ns, B, f, g, h)
 
         @test isapprox(pg, order, atol=0.03) || pg > order
         @test isapprox(ph, order, atol=0.03) || ph > order
     end
-    let (order,B) = (2,RadialDifferences)
-        dd = b-a
-        ϵg,ϵh,pg,ph = compute_derivative_errors(0, dd, Ns, B, x -> f(x-dd/2), x -> g(x-dd/2), x -> h(x-dd/2))
+    @testset "kind = RadialDifferences" begin
+        let (order,B) = (2,RadialDifferences)
+            dd = b-a
+            ϵg,ϵh,pg,ph = compute_derivative_errors(0, dd, Ns, B, x -> f(x-dd/2), x -> g(x-dd/2), x -> h(x-dd/2))
 
-        @test isapprox(pg, order, atol=0.03) || pg > order
-        @test isapprox(ph, order, atol=0.03) || ph > order
+            @test isapprox(pg, order, atol=0.03) || pg > order
+            @test isapprox(ph, order, atol=0.03) || ph > order
+        end
     end
 end
 
@@ -215,8 +374,8 @@ end
         Ns = 2 .^ (7:14)
         nev = 3
         L = 1.0
-        for (order,B) in [(2,FiniteDifferences),
-                          (4,NumerovFiniteDifferences)]
+        @testset "kind = $B" for (order,B) in [(2,FiniteDifferences),
+                                               (4,NumerovFiniteDifferences)]
             ϵλ,slopes,elapsed = compute_diagonalization_errors(test_fd_particle_in_a_box,
                                                                B, Ns, L, nev)
             for p in slopes
@@ -238,9 +397,9 @@ end
         r = axes(R, 1)
 
         D = Derivative(Base.axes(R,1))
-        ∇² = R'⋆D'⋆D⋆R
-        Tm = materialize(∇²)
-        Tm /= -2
+        ∇² = apply(*, R', D', D, R)
+        Tm = ∇² / -2
+        @test Tm isa SymTridiagonal
 
         V = R'QuasiDiagonal(-inv.(r))*R
 
@@ -281,8 +440,8 @@ end
         Z = 1.0
         ℓ = 0
 
-        for (order,B) in [(2,RadialDifferences),
-                          (4,NumerovFiniteDifferences)]
+        @testset "kind = $B" for (order,B) in [(2,RadialDifferences),
+                                               (4,NumerovFiniteDifferences)]
             ϵλ,slopes,elapsed = compute_diagonalization_errors(test_singular_fd_scheme,
                                                                B, Ns, rₘₐₓ, Z, ℓ, nev)
             for p in slopes

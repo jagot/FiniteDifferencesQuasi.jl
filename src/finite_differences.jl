@@ -1,9 +1,14 @@
 abstract type AbstractFiniteDifferences{T,I<:Integer} <: Basis{T} end
+const RestrictedFiniteDifferences{T,B<:AbstractFiniteDifferences{T}} =
+    RestrictedQuasiArray{T,2,B}
+const FiniteDifferencesOrRestricted = BasisOrRestricted{<:AbstractFiniteDifferences}
 
 eltype(::AbstractFiniteDifferences{T}) where T = T
 
 axes(B::AbstractFiniteDifferences{T}) where T = (Inclusion(leftendpoint(B)..rightendpoint(B)), Base.OneTo(length(locs(B))))
 size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
+
+locs(B::RestrictedFiniteDifferences) = locs(parent(B))[indices(B,2)]
 
 ==(A::AbstractFiniteDifferences,B::AbstractFiniteDifferences) = locs(A) == locs(B)
 
@@ -12,6 +17,8 @@ tent(x, x₀::T, δx::T) where T =
 
 getindex(B::AbstractFiniteDifferences, x::Real, i::Integer) =
     tent(x, locs(B)[i], step(B))
+
+step(B::RestrictedFiniteDifferences) = step(parent(B))
 
 """
     within_interval(x, interval)
@@ -30,17 +37,22 @@ function getindex(B::AbstractFiniteDifferences{T}, x::AbstractRange, sel::Abstra
     l = locs(B)
     δx = step(B)
     χ = spzeros(T, length(x), length(sel))
+    o = sel[1] - 1
     for j in sel
         x₀ = l[j]
+        J = j - o
         for i ∈ within_interval(x, x₀ - δx..x₀ + δx)
-            χ[i,j] = tent(x[i], x₀, δx)
+            χ[i,J] = tent(x[i], x₀, δx)
         end
     end
     χ
 end
 
-getindex(B::AbstractFiniteDifferences{T}, x::AbstractRange, ::Colon) where T =
-    getindex(B, x, axes(B,2))
+getindex(B::FiniteDifferencesOrRestricted, x::AbstractRange, ::Colon) =
+    getindex(parent(B), x, indices(B,2))
+
+getindex(B::RestrictedFiniteDifferences, x::AbstractRange, sel::AbstractVector) =
+    getindex(parent(B), x, indices(B,2)[sel])
 
 # * Types
 
@@ -228,7 +240,7 @@ where
 \end{bmatrix},\]
 and
 \[\Delta_2 \equiv
--\frac{1}{h^2}
+\frac{1}{h^2}
 \begin{bmatrix}
 -2(1+\delta\beta_1) & 1 &\\
 1 & -2 & 1\\
@@ -356,4 +368,3 @@ function Base.:(\ )(B::FD, f::BroadcastQuasiArray) where {T,FD<:AbstractFiniteDi
         throw(DimensionMismatch("Function on $(axes(f,1).domain) cannot be interpolated over basis on $(axes(B,1).domain)"))
     getindex.(Ref(f), locs(B))
 end
-

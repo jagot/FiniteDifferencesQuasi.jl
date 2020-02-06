@@ -1,10 +1,10 @@
 # * Norms
 
-_norm(B::AbstractFiniteDifferences, c::AbstractArray, p::Real=2) =
+_norm(B::FiniteDifferencesOrRestricted, c::AbstractArray, p::Real=2) =
     norm(c, p)*(step(B)^(inv(p)))
 
 LinearAlgebra.norm(v::FDVecOrMat, p::Real=2) = _norm(v.args..., p)
-LinearAlgebra.norm(v::Mul{<:Any, <:Tuple{<:AbstractFiniteDifferences, <:AbstractArray}},
+LinearAlgebra.norm(v::Mul{<:Any, <:Tuple{<:FiniteDifferencesOrRestricted, <:AbstractArray}},
                    p::Real=2) = _norm(v.args..., p)
 
 function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
@@ -12,7 +12,7 @@ function LinearAlgebra.normalize!(v::FDVecOrMat, p::Real=2)
     v
 end
 
-function LinearAlgebra.normalize!(v::Mul{<:Any, <:Tuple{<:AbstractFiniteDifferences, <:AbstractArray}},
+function LinearAlgebra.normalize!(v::Mul{<:Any, <:Tuple{<:FiniteDifferencesOrRestricted, <:AbstractArray}},
                                   p::Real=2)
     v.args[2][:] /= norm(v,p)
     v
@@ -21,15 +21,15 @@ end
 # * Inner products
 
 function _inner_product(a::Adjoint{<:Any,<:AbstractVector}, A::QuasiAdjoint{<:Any,<:FD},
-                        B::FD, b::AbstractVector) where {FD<:AbstractFiniteDifferences}
+                        B::FD, b::AbstractVector) where {FD<:FiniteDifferencesOrRestricted}
     axes(A.parent) == axes(B) || throw(ArgumentError("Incompatible axes"))
     a*b*step(B)
 end
 
-LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD}) where {T,U,FD<:AbstractFiniteDifferences{U}} =
+LazyArrays.materialize(inner_product::FDInnerProduct{T,U,FD}) where {T,U,FD<:FiniteDifferencesOrRestricted{U}} =
     _inner_product(inner_product.args...)
 
-function LazyArrays.materialize(inner_product::LazyFDInnerProduct{FD}) where {FD<:AbstractFiniteDifferences}
+function LazyArrays.materialize(inner_product::LazyFDInnerProduct{FD}) where {FD<:FiniteDifferencesOrRestricted}
     aA,Bb = inner_product.args
     _inner_product(aA.args..., Bb.args...)
 end
@@ -44,7 +44,7 @@ function LazyArrays.materialize(s::Mul{<:Any, <:Tuple{
         <:ContinuumArrays.QuasiArrays.QuasiAdjoint{<:Any, <:FD}}},
     <:Mul{<:Any, <:Tuple{
         <:FD,
-        <:AbstractVector}}}}) where {FD<:AbstractFiniteDifferences}
+        <:AbstractVector}}}}) where {FD<:FiniteDifferencesOrRestricted}
     a,o,b = s.args
     axes(a.args[2].parent) == axes(o.args[1]) &&
         axes(o.args[3].parent) == axes(b.args[1]) ||

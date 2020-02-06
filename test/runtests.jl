@@ -161,6 +161,31 @@ end
             @test materialize(lazyip) ≈ 1.0
         end
     end
+
+    @testset "Restricted bases" begin
+        N = 100
+        n = 10
+        dr = 0.1
+
+        R = RadialDifferences(N, dr)
+        R̃ = R[:,1:n]
+
+        f = 3
+
+        ϕ = applied(*, R, f*ones(N))
+        ϕ̃ = applied(*, R̃, f*ones(n))
+
+        @test norm(ϕ) ≈ f*√(N*dr)
+        @test norm(ϕ̃) ≈ f*√(n*dr)
+
+        @test apply(*, ϕ', ϕ) == (f^2*N*dr)
+        @test apply(*, ϕ̃', ϕ̃) == (f^2*n*dr)
+
+        normalize!(ϕ)
+        @test norm(ϕ) ≈ 1.0
+        normalize!(ϕ̃)
+        @test norm(ϕ̃) ≈ 1.0
+    end
 end
 
 @testset "Derivatives" begin
@@ -339,6 +364,31 @@ end
         copyto!(wy, yy)
         @test all(isreal.(R⁻¹*wy))
         @test all(R⁻¹*wy .== abs2.(R⁻¹*y))
+    end
+
+    @testset "Restricted bases" begin
+        N = 100
+        n = 10
+        dr = 0.1
+
+        R = RadialDifferences(N, dr)
+        R̃ = R[:,1:n]
+
+        f = 3
+
+        ϕ = applied(*, R, f*ones(N))
+        ϕ̃ = applied(*, R̃, f*ones(n))
+
+        ρ = similar(ϕ)
+        ρ̃ = similar(ϕ̃)
+
+        @test ϕ .⋆ ϕ isa FiniteDifferencesQuasi.FDDensity
+        @test ϕ̃ .⋆ ϕ̃ isa FiniteDifferencesQuasi.FDDensity
+
+        copyto!(ρ, ϕ .⋆ ϕ)
+        @test ρ.args[2] == f^2*ones(N)
+        copyto!(ρ̃, ϕ̃ .⋆ ϕ̃)
+        @test ρ̃.args[2] == f^2*ones(n)
     end
 end
 

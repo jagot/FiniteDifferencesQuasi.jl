@@ -7,6 +7,8 @@ eltype(::AbstractFiniteDifferences{T}) where T = T
 
 axes(B::AbstractFiniteDifferences{T}) where T = (Inclusion(leftendpoint(B)..rightendpoint(B)), Base.OneTo(length(locs(B))))
 size(B::AbstractFiniteDifferences) = (ℵ₁, length(locs(B)))
+local_step(B::AbstractFiniteDifferences, _) = step(B)
+weight(B::AbstractFiniteDifferences{T}, _) where T = one(T)
 
 locs(B::RestrictedFiniteDifferences) = locs(parent(B))[indices(B,2)]
 
@@ -16,9 +18,10 @@ tent(x, x₀::T, δx::T) where T =
     one(T) - abs(clamp((x-x₀)/δx, -one(T), one(T)))
 
 getindex(B::AbstractFiniteDifferences, x::Real, i::Integer) =
-    tent(x, locs(B)[i], step(B))
+    weight(B,i)*tent(x, locs(B)[i], local_step(B, i))
 
 step(B::RestrictedFiniteDifferences) = step(parent(B))
+local_step(B::RestrictedFiniteDifferences, i) = local_step(parent(B), j+first(indices(B,2))-1)
 
 """
     within_interval(x, interval)
@@ -35,14 +38,15 @@ end
 
 function getindex(B::AbstractFiniteDifferences{T}, x::AbstractRange, sel::AbstractVector) where T
     l = locs(B)
-    δx = step(B)
     χ = spzeros(T, length(x), length(sel))
     o = sel[1] - 1
     for j in sel
         x₀ = l[j]
         J = j - o
+        δx = local_step(B, j)
+        w = weight(B, j)
         for i ∈ within_interval(x, x₀ - δx..x₀ + δx)
-            χ[i,J] = tent(x[i], x₀, δx)
+            χ[i,J] = w*tent(x[i], x₀, δx)
         end
     end
     χ
@@ -184,6 +188,117 @@ IntervalSets.rightendpoint(B::RadialDifferences{T}) where T = (B.j[end]+one(T)/2
 
 show(io::IO, B::RadialDifferences{T}) where T =
     write(io, "Radial finite differences basis {$T} on $(axes(B,1).domain) with $(size(B,2)) points spaced by ρ = $(B.ρ)")
+
+# ** Staggered finite differences
+
+# Generalization of RadialDifferences to non-uniform grid, c.f.
+#
+# - Krause, J. L., & Schafer, K. J. (1999). Control of THz Emission from
+#   Stark Wave Packets. The Journal of Physical Chemistry A, 103(49),
+#   10118–10125. http://dx.doi.org/10.1021/jp992144
+
+local_step(r::AbstractRange, _) = step(r)
+function local_step(r::AbstractVector, j)
+    if j == 1
+        (r[2] - r[1])
+    elseif j == length(r)
+        r[j] - r[j-1]
+    else
+        (r[j+1]-r[j-1])/2
+    end
+end
+
+schafer_corner_fix(ρ, Z) = 1/ρ^2*Z*ρ/8*(1 + Z*ρ)
+
+function log_lin_grid!(r, ρₘᵢₙ, ρₘₐₓ, α, js)
+    δρ = ρₘₐₓ-ρₘᵢₙ
+    for j = js
+        r[j] = r[j-1] + ρₘᵢₙ + (1-exp(-α*r[j-1]))*δρ
+    end
+end
+
+function log_lin_grid(ρₘᵢₙ, ρₘₐₓ, α, n::Integer)
+    r = zeros(n)
+    r[1] = ρₘᵢₙ/2
+    log_lin_grid!(r, ρₘᵢₙ, ρₘₐₓ, α, 2:n)
+    r
+end
+
+function log_lin_grid(ρₘᵢₙ, ρₘₐₓ, α, rₘₐₓ)
+    # Guess n
+    n = ceil(Int, rₘₐₓ/ρₘₐₓ)
+    r = zeros(n)
+    r[1] = ρₘᵢₙ/2
+    log_lin_grid!(r, ρₘᵢₙ, ρₘₐₓ, α, 2:n)
+    nprev = n
+    while r[end] < rₘₐₓ
+        n *= 2
+        resize!(r, n)
+        log_lin_grid!(r, ρₘᵢₙ, ρₘₐₓ, α, nprev+1:n)
+        nprev = n
+    end
+    j = findlast(<(rₘₐₓ), r)
+    r[1:j+1]
+end
+
+struct StaggeredFiniteDifferences{T,V<:AbstractVector{T},A,B} <: AbstractFiniteDifferences{T,Int}
+    r::V
+    Z::T
+    δβ₁::T # Correction used for bare Coulomb potentials, Eq. (22) Schafer2009
+    α::A
+    β::B
+    function StaggeredFiniteDifferences(r::V, Z=one(T),
+                                        δβ₁=schafer_corner_fix(local_step(r,1), Z)) where {T,V<:AbstractVector{T}}
+        N = length(r)
+        α = zeros(T, N-1)
+        β = zeros(T, N)
+
+        r̃ = vcat(r, 2r[end]-r[end-1])
+        a = 2r[1]-r[2]
+        b,c,d = r[1],r[2],r[3]
+
+        β[1] = δβ₁
+
+        for j = 1:N
+            if j < N
+                d = r̃[j+2]
+                α[j] = 2/((c-b)*√((d-b)*(c-a)))*((b+c)/2)^2/(b*c)
+            end
+
+            β[j] += 1/(c-a)*(1/(c-b)*((c+b)/2b)^2 +
+                             1/(b-a)*((b+a)/2b)^2)
+
+            a,b,c = b,c,d
+        end
+
+        new{T,V,typeof(α),typeof(β)}(r, T(Z), T(δβ₁), α, β)
+    end
+
+    # Constructor of uniform grid
+    StaggeredFiniteDifferences(n::Integer, ρ, args...) =
+        StaggeredFiniteDifferences(((1:n) .- 0.5)*ρ, args...)
+
+    # Constructor of log-linear grid
+    StaggeredFiniteDifferences(ρₘᵢₙ, ρₘₐₓ, α, n::Integer, args...) =
+        StaggeredFiniteDifferences(log_lin_grid(ρₘᵢₙ, ρₘₐₓ, α, n::Integer), args...)
+
+    StaggeredFiniteDifferences(ρₘᵢₙ::T, ρₘₐₓ::T, α::T, rₘₐₓ::T, args...) where {T<:Real} =
+        StaggeredFiniteDifferences(log_lin_grid(ρₘᵢₙ, ρₘₐₓ, α, rₘₐₓ), args...)
+end
+
+locs(B::StaggeredFiniteDifferences) = B.r
+# The (locally varying) step is baked into the expansion coefficients
+step(B::StaggeredFiniteDifferences{T}) where T = one(T)
+local_step(B::StaggeredFiniteDifferences, j) = local_step(B.r, j)
+weight(B::StaggeredFiniteDifferences, j) = 1/√(local_step(B, j))
+
+IntervalSets.leftendpoint(B::StaggeredFiniteDifferences{T}) where T = zero(T)
+IntervalSets.rightendpoint(B::StaggeredFiniteDifferences{T}) where T = 2B.r[end]-B.r[end-1]
+
+==(A::StaggeredFiniteDifferences,B::StaggeredFiniteDifferences) = locs(A) == locs(B) && A.Z == B.Z && A.δβ₁ == B.δβ₁
+
+show(io::IO, B::StaggeredFiniteDifferences{T}) where T =
+    write(io, "Staggered finite differences basis {$T} on $(axes(B,1).domain) with $(size(B,2)) points")
 
 
 # ** Numerov finite differences
@@ -366,5 +481,7 @@ end
 function Base.:(\ )(B::FD, f::BroadcastQuasiArray) where {T,FD<:AbstractFiniteDifferences{T}}
     axes(f,1) == axes(B,1) ||
         throw(DimensionMismatch("Function on $(axes(f,1).domain) cannot be interpolated over basis on $(axes(B,1).domain)"))
-    getindex.(Ref(f), locs(B))
+
+    x = locs(B)
+    getindex.(Ref(f), x) ./ weight.(Ref(B), eachindex(x))
 end

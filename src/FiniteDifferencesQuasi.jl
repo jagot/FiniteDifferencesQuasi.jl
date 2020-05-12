@@ -30,7 +30,9 @@ include("operators.jl")
 include("derivatives.jl")
 include("densities.jl")
 
-export AbstractFiniteDifferences, FiniteDifferences, RadialDifferences, NumerovFiniteDifferences,
+export AbstractFiniteDifferences, FiniteDifferences,
+    RadialDifferences, StaggeredFiniteDifferences,
+    NumerovFiniteDifferences,
     Derivative, dot, QuasiDiagonal
 
 end # module

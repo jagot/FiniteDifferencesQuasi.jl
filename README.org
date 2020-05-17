@@ -2,6 +2,13 @@
 #+AUTHOR: Stefanos Carlström
 #+EMAIL: stefanos.carlstrom@gmail.com
 
+*THIS LIBRARY HAS BEEN DEPRECATED*
+
+a more structured library, with support for FE-DVR and
+B-splines as well can be found at
+
+[[https://github.com/JuliaApproximation/CompactBases.jl]]
+
 [[https://travis-ci.org/jagot/FiniteDifferencesQuasi.jl][https://travis-ci.org/jagot/FiniteDifferencesQuasi.jl.svg?branch=master]]
 [[https://ci.appveyor.com/project/jagot/finitedifferencesquasi-jl][https://img.shields.io/appveyor/ci/jagot/finitedifferencesquasi-jl.svg?logo=appveyor]]
 [[https://codecov.io/gh/jagot/FiniteDifferencesQuasi.jl][https://codecov.io/gh/jagot/FiniteDifferencesQuasi.jl/branch/master/graph/badge.svg]]

@@ -1,5 +1,10 @@
 module FiniteDifferencesQuasi
 
+function __init__()
+    @warn "The FiniteDifferencesQuasi.jl package has been deprecated in favour of JuliaApproximation/CompactBases.jl"
+    nothing
+end
+
 import Base: eltype, axes, size, ==, getindex, checkbounds, copyto!, similar, show, step
 import Base.Broadcast: materialize
 
